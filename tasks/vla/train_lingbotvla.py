@@ -36,6 +36,7 @@ from lingbotvla.utils import helper
 from lingbotvla.utils.async_hf_checkpoint import AsyncHFCheckpointSaver
 from lingbotvla.utils.arguments import EvalArguments, DataArguments, ModelArguments, TrainingArguments, parse_args, save_args
 from lingbotvla.utils.dist_utils import all_reduce
+from lingbotvla.utils.lora_utils import add_lora_to_model, save_lora_adapter
 from lingbotvla.models.config_registry import get_config_registry
 
 from lingbotvla.models.vla.vision_models.module_utils import (
@@ -118,6 +119,35 @@ def get_moe_param_groups(model: "torch.nn.Module", args_train) -> Optional[List[
 
 @dataclass
 class MyTrainingArguments(TrainingArguments):
+    use_lora: bool = field(
+        default=False,
+        metadata={"help": "Enable single-GPU LoRA fine-tuning."},
+    )
+    lora_rank: int = field(default=16, metadata={"help": "LoRA rank."})
+    lora_alpha: int = field(default=32, metadata={"help": "LoRA scaling factor."})
+    lora_dropout: float = field(default=0.0, metadata={"help": "LoRA dropout probability."})
+    lora_target_scope: Literal["action_expert", "all"] = field(
+        default="action_expert",
+        metadata={"help": "Adapt only qwen_expert linears or all matching model linears."},
+    )
+    lora_target_modules: List[str] = field(
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        metadata={"help": "Linear module suffixes to adapt."},
+    )
+    lora_modules_to_save: List[str] = field(
+        default_factory=lambda: [
+            "state_proj",
+            "action_in_proj",
+            "action_out_proj",
+            "action_time_mlp_in",
+            "action_time_mlp_out",
+        ],
+        metadata={"help": "Non-LoRA task heads kept trainable and included in adapter exports."},
+    )
+    lora_pretrained_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Adapter directory or adapter_model.{safetensors,bin} to resume/warm-start."},
+    )
     freeze_vit: bool = field(
         default=False,
         metadata={"help": "Whether or not to freeze the vit parameters."},
@@ -332,6 +362,11 @@ class Arguments:
 
 def main():
     args = parse_args(Arguments)
+    if args.train.use_lora:
+        if args.train.world_size != 1 or args.train.data_parallel_mode != "ddp":
+            raise ValueError("LoRA is currently supported for one process/GPU with data_parallel_mode='ddp'.")
+        if args.train.optimizer == "dist_muon":
+            raise ValueError("LoRA does not support optimizer='dist_muon'; use adamw, anyprecision_adamw, or muon.")
     logger.info(f"Process rank: {args.train.global_rank}, world size: {args.train.world_size}")
     logger.info_rank0(json.dumps(asdict(args), indent=2))
     torch.cuda.set_device(f"cuda:{args.train.local_rank}")
@@ -379,6 +414,26 @@ def main():
         config_kwargs=config_kwargs,
         moe_implementation=getattr(args.model, 'moe_implementation', None),
     )
+    lora_export_model = None
+    if args.train.use_lora:
+        model = add_lora_to_model(
+            model,
+            lora_rank=args.train.lora_rank,
+            lora_alpha=args.train.lora_alpha,
+            lora_dropout=args.train.lora_dropout,
+            lora_target_modules=args.train.lora_target_modules,
+            lora_target_scope=args.train.lora_target_scope,
+            modules_to_save=args.train.lora_modules_to_save,
+            pretrained_lora_path=args.train.lora_pretrained_path,
+        )
+        # Keep the pre-DDP reference for compact adapter-only exports.
+        lora_export_model = model
+        trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
+        total = sum(param.numel() for param in model.parameters())
+        logger.info_rank0(
+            f"LoRA enabled: {trainable:,}/{total:,} trainable parameters "
+            f"({100.0 * trainable / total:.4f}%)."
+        )
     use_depth_align = True if args.train.align_params != {} else False
     use_future_depth = args.train.align_params.get('depth', {}).get('use_future_depth', False)
     use_future_video = use_depth_align and args.train.align_params.get('use_future_video', False)
@@ -614,6 +669,13 @@ def main():
     ) -> None:
         if args.train.global_rank != 0:
             return
+        if args.train.use_lora and checkpoint_path is not None:
+            adapter_path = save_lora_adapter(
+                lora_export_model,
+                os.path.join(checkpoint_path, "lora_adapter"),
+                metadata={"global_step": step, "epoch": epoch, "epoch_step": epoch_step},
+            )
+            logger.info_rank0(f"LoRA adapter saved at {adapter_path}")
         if not args.train.save_hf_weights or checkpoint_path is None:
             return
         hf_saver.submit(
