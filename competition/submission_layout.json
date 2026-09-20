@@ -1,0 +1,7 @@
+{
+  "archive_root": "submission",
+  "results": "results.json",
+  "checkpoint": "checkpoint",
+  "reproduction_report": "reproduction_report.md"
+}
+

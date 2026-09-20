@@ -124,6 +124,17 @@ LingBot-VLA 2.0 appends current and future perceptual queries to the visual/text
 
 ## Post-Training Example
 
+> [!IMPORTANT]
+> **Robbyant Embodied AI Challenge profile:** the competition requires one
+> LingBot-VLA 2.0-initialized checkpoint jointly trained across all 50
+> Aloha-AgileX tasks. Only the 50-task `clean` demonstrations may be used for
+> training; `randomized` data is evaluation-only. Task-ID routing, per-task
+> checkpoints, and checkpoint ensembles are not allowed. The generic upstream
+> example below is not competition-compliant because it mixes clean and
+> randomized data. Use the single-RTX-4090 workflow in
+> [docs/challenge_4090.md](docs/challenge_4090.md) and the submission checks in
+> [competition/README.md](competition/README.md) instead.
+
 ### Data Preparation
 
 Post-training requires three preparation steps. For a complete guide on customizing your own dataset, see the [Custom Data Guide](lingbotvla/data/vla_data/README.md).
@@ -134,7 +145,7 @@ Post-training requires three preparation steps. For a complete guide on customiz
 | 2. Prepare Robot Config | Define feature mapping from raw states/actions/images to the unified feature space | `configs/robot_configs/<data_name>.yaml` |
 | 3. Compute Norm Statistics | Calculate normalization statistics over your dataset | `assets/norm_stats/<name>.json` |
 
-Below we use **RoboTwin 2.0** 50 tasks, trained with clean and randomized data together, as an example.
+Below we use **RoboTwin 2.0** 50 tasks, trained with clean and randomized data together, as a generic upstream example. Do not use the randomized portion when preparing a competition entry.
 
 - **Step 1 - RoboTwin Data**: Follow [RoboTwin2.0 Preparation](experiment/robotwin/README.md) to download and prepare the dataset.
 - **Step 2 - Robot Config**: See [configs/robot_configs/robotwin.yaml](configs/robot_configs/robotwin.yaml) for the RoboTwin feature mapping.

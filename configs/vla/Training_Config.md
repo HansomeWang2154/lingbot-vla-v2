@@ -482,3 +482,38 @@ bash train.sh tasks/vla/train_lingbotvla.py ./configs/vla/real_robot/real_robot.
 ```
 This example needs at least about 49 GB of VRAM per GPU on A6000-class GPUs. Actual VRAM usage depends on the model checkpoint, dataset, image/depth options, and whether gradient checkpointing is enabled.
 If GPU memory is sufficient, set `--train.enable_gradient_checkpointing false` to reduce recomputation overhead and improve speed.
+
+## Single-GPU LoRA fine-tuning
+
+LingBot-VLA 2.0 can freeze the base checkpoint and train compact LoRA adapters on one GPU. Start from a normal VLA config, disable the native depth/video teachers if they are not needed, and override the training section as follows:
+
+```yaml
+train:
+  use_lora: true
+  data_parallel_mode: ddp
+  optimizer: adamw
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_scope: action_expert
+  lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  lora_modules_to_save: [state_proj, action_in_proj, action_out_proj, action_time_mlp_in, action_time_mlp_out]
+  micro_batch_size: 1
+  gradient_accumulation_steps: 8
+  global_batch_size: 8
+  enable_gradient_checkpointing: true
+  save_hf_weights: false
+```
+
+Launch with one process (for example, `NPROC_PER_NODE=1 bash train.sh ...`). Each distributed checkpoint also gets a compact export at `checkpoints/global_step_<N>/lora_adapter/adapter_model.safetensors`. Set `train.lora_pretrained_path` to that directory to warm-start another run. These exports use LingBot-VLA's low-level PEFT format and should be loaded through the same training/model construction path; they are not standalone base-model weights.
+
+For a ready-to-edit 24 GB baseline, use `configs/vla/robotwin/robotwin_4090_lora.yaml`. Before deployment, merge the adapter into the exact original HF checkpoint used by `model.model_path`:
+
+```bash
+python tools/merge_lora_adapter.py \
+  --base-model /path/to/models/lingbot-vla-v2-6b-robotwin \
+  --adapter /path/to/run/checkpoints/global_step_1000/lora_adapter \
+  --output /path/to/run/checkpoints/global_step_1000/merged_hf_ckpt
+```
+
+`merged_hf_ckpt` contains only the original strict-load parameter names, copied model assets, and merged weights, so it can be passed to `deploy/lingbot_vla_v2_policy.py --model_path`. The merge is offline, writes a new directory, and never downloads weights. It rejects adapter tensors that do not match the base checkpoint; do not merge against a different release or training base.
