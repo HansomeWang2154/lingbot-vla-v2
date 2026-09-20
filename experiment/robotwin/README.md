@@ -164,13 +164,13 @@ bash experiment/robotwin/start_robotwin_infer_and_eval.sh \
     --eval_workdir /path/to/RoboTwin \
     --conda_sh     /path/to/miniconda3/etc/profile.d/conda.sh \
     --task_config  demo_clean \
-    --num_tasks 1 --num_gpus 1 --num_per_gpu 1
+    --num_tasks 1 --episodes 1 --num_gpus 1 --num_per_gpu 1 \
+    --use_bf16 True --use_fp32 False --use_compile False --no_video
 ```
 
 The run dir is printed at startup (`Run directory: ...`). You should see `Success rate: N/N =>
-...` lines appear in the task log. Each task evaluates **100 episodes**, so even a
-single-task smoke takes tens of minutes — kill it once you've seen successes, then launch
-the full run.
+...` lines appear in the task log. `--episodes 1` is only an end-to-end smoke test and is
+not a benchmark score. Omit it for every scored run; the default is **100 episodes/task**.
 
 ### Output layout
 
@@ -192,6 +192,7 @@ the full run.
 | `--use_length` | action-chunk length forwarded to the policy (default 50) |
 | `--robo_name` | robot config name (default `robotwin`) |
 | `--task_config` | RoboTwin setting: `demo_clean` or `demo_randomized` |
+| `--episodes` | episodes per task (default: 100; use 1 only for smoke) |
 | `--use_bf16` / `--use_fp32` | inference precision; release reproduction uses `False` / `True` |
 | `--use_compile` | enable lazy `torch.compile` (default `True`; first request takes longer) |
 | `--inference_script` | inference-side module (default `deploy/lingbot_vla_v2_policy.py`) |

@@ -24,7 +24,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -41,6 +41,11 @@ DEFAULT_LORA_TARGET_MODULES = (
     "up_proj",
     "down_proj",
 )
+
+LORA_TRAINING_CHECKPOINT_FORMAT = "lingbotvla-lora-training-checkpoint-v1"
+LORA_TRAINING_MANIFEST = "lora_training_checkpoint.json"
+LORA_OPTIMIZER_STATE = "optimizer.pt"
+LORA_EXTRA_STATE = "extra_state.pt"
 
 
 def _unwrap_model(model: nn.Module) -> nn.Module:
@@ -234,6 +239,133 @@ def save_lora_adapter(model: nn.Module, output_dir: str, metadata: Optional[dict
         json.dump(config, file, ensure_ascii=False, indent=2, default=str)
     os.replace(temp_config_path, config_path)
     return str(weights_path)
+
+
+def _atomic_torch_save(value, output_path: Path) -> None:
+    """Write a torch payload atomically within one filesystem."""
+
+    temp_path = output_path.with_name(f".{output_path.name}.tmp-{os.getpid()}")
+    try:
+        torch.save(value, temp_path)
+        os.replace(temp_path, output_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def is_lora_training_checkpoint(checkpoint_dir: Union[str, Path]) -> bool:
+    """Return whether a checkpoint has every file required for exact resume."""
+
+    checkpoint_path = Path(checkpoint_dir)
+    manifest_path = checkpoint_path / LORA_TRAINING_MANIFEST
+    if not manifest_path.is_file():
+        return False
+    try:
+        with open(manifest_path, encoding="utf-8") as file:
+            manifest = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if manifest.get("format") != LORA_TRAINING_CHECKPOINT_FORMAT:
+        return False
+    return all(
+        (
+            (checkpoint_path / "lora_adapter" / "adapter_model.safetensors").is_file(),
+            (checkpoint_path / "lora_adapter" / "adapter_config.json").is_file(),
+            (checkpoint_path / LORA_OPTIMIZER_STATE).is_file(),
+            (checkpoint_path / LORA_EXTRA_STATE).is_file(),
+        )
+    )
+
+
+def save_lora_training_checkpoint(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    checkpoint_dir: Union[str, Path],
+    extra_state: Dict[str, Any],
+    metadata: Optional[dict] = None,
+) -> str:
+    """Save only trainable LoRA/head tensors plus optimizer and resume state.
+
+    The completion manifest is written last. Auto-resume therefore ignores a
+    checkpoint interrupted while any payload is still being written. The
+    frozen base checkpoint is deliberately not serialized.
+    """
+
+    checkpoint_path = Path(checkpoint_dir)
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+    manifest_path = checkpoint_path / LORA_TRAINING_MANIFEST
+    if manifest_path.exists():
+        manifest_path.unlink()
+
+    adapter_weights = Path(
+        save_lora_adapter(model, str(checkpoint_path / "lora_adapter"), metadata=metadata)
+    )
+    optimizer_path = checkpoint_path / LORA_OPTIMIZER_STATE
+    extra_state_path = checkpoint_path / LORA_EXTRA_STATE
+    _atomic_torch_save(optimizer.state_dict(), optimizer_path)
+    _atomic_torch_save(extra_state, extra_state_path)
+
+    payload_paths = {
+        "adapter": adapter_weights,
+        "optimizer": optimizer_path,
+        "extra_state": extra_state_path,
+    }
+    manifest = {
+        "format": LORA_TRAINING_CHECKPOINT_FORMAT,
+        "files": {name: str(path.relative_to(checkpoint_path)) for name, path in payload_paths.items()},
+        "payload_bytes": {name: path.stat().st_size for name, path in payload_paths.items()},
+        "frozen_base_included": False,
+    }
+    if metadata:
+        manifest["training_metadata"] = metadata
+    temp_manifest_path = checkpoint_path / f".{LORA_TRAINING_MANIFEST}.tmp-{os.getpid()}"
+    try:
+        with open(temp_manifest_path, "w", encoding="utf-8") as file:
+            json.dump(manifest, file, ensure_ascii=False, indent=2, default=str)
+        os.replace(temp_manifest_path, manifest_path)
+    finally:
+        if temp_manifest_path.exists():
+            temp_manifest_path.unlink()
+    return str(checkpoint_path)
+
+
+def load_lora_training_checkpoint(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    checkpoint_dir: Union[str, Path],
+) -> Dict[str, Any]:
+    """Restore adapter/head weights, optimizer state, and loop state."""
+
+    checkpoint_path = Path(checkpoint_dir)
+    if not is_lora_training_checkpoint(checkpoint_path):
+        raise ValueError(f"Incomplete or unsupported LoRA training checkpoint: {checkpoint_path}")
+
+    adapter_state = load_lora_state_dict(str(checkpoint_path / "lora_adapter"))
+    expected_trainable = {
+        name for name, parameter in _unwrap_model(model).named_parameters() if parameter.requires_grad
+    }
+    if set(adapter_state) != expected_trainable:
+        missing = sorted(expected_trainable - set(adapter_state))
+        extra = sorted(set(adapter_state) - expected_trainable)
+        raise KeyError(
+            "LoRA checkpoint trainable tensors do not match the current model: "
+            f"missing={missing[:10]}, extra={extra[:10]}"
+        )
+    _, unexpected_keys = _unwrap_model(model).load_state_dict(adapter_state, strict=False)
+    if unexpected_keys:
+        raise KeyError(f"LoRA checkpoint has unexpected model tensors: {unexpected_keys[:10]}")
+
+    optimizer_state = torch.load(
+        checkpoint_path / LORA_OPTIMIZER_STATE,
+        map_location="cpu",
+        weights_only=True,
+    )
+    optimizer.load_state_dict(optimizer_state)
+    return torch.load(
+        checkpoint_path / LORA_EXTRA_STATE,
+        map_location="cpu",
+        weights_only=False,
+    )
 
 
 def _resolve_adapter_weights_path(file_path: str) -> str:

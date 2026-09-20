@@ -12,10 +12,13 @@ from safetensors.torch import load_file, save_file
 from lingbotvla.utils.lora_utils import (
     add_lora_to_model,
     get_lora_state_dict,
+    is_lora_training_checkpoint,
+    load_lora_training_checkpoint,
     load_lora_state_dict,
     merge_lora_adapter_into_hf_checkpoint,
     resolve_lora_target_modules,
     save_lora_adapter,
+    save_lora_training_checkpoint,
 )
 
 
@@ -163,6 +166,66 @@ class LoraUtilsTest(unittest.TestCase):
             self.assertFalse(any("lora_" in key for key in merged))
             self.assertTrue((output_dir / "config.json").is_file())
             self.assertTrue((output_dir / "lora_merge_manifest.json").is_file())
+
+    def test_lightweight_training_checkpoint_round_trip_excludes_frozen_base(self):
+        model = _ToyVLA()
+        model.frozen_blob = nn.Parameter(torch.zeros(1024, 1024), requires_grad=False)
+        model.requires_grad_(False)
+        model.qwen_expert.self_attn.q_proj.weight.requires_grad_(True)
+        model.state_proj.weight.requires_grad_(True)
+        model.state_proj.bias.requires_grad_(True)
+        optimizer = torch.optim.AdamW(
+            [parameter for parameter in model.parameters() if parameter.requires_grad],
+            lr=1e-3,
+        )
+        loss = sum(parameter.sum() for parameter in model.parameters() if parameter.requires_grad)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        expected_weights = {
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
+            if parameter.requires_grad
+        }
+        extra_state = {
+            "global_step": 17,
+            "lr_scheduler": {"last_epoch": 17},
+            "train_dataloader": {"index": 4},
+            "environ_meter": {"seen": 68},
+            "torch_rng_state": torch.get_rng_state(),
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint_dir = Path(temp_dir) / "global_step_17"
+            save_lora_training_checkpoint(
+                model,
+                optimizer,
+                checkpoint_dir,
+                extra_state,
+                metadata={"global_step": 17},
+            )
+            self.assertTrue(is_lora_training_checkpoint(checkpoint_dir))
+            self.assertFalse((checkpoint_dir / "model").exists())
+            self.assertFalse((checkpoint_dir / "ema").exists())
+            checkpoint_bytes = sum(
+                path.stat().st_size for path in checkpoint_dir.rglob("*") if path.is_file()
+            )
+            self.assertLess(checkpoint_bytes, model.frozen_blob.numel() * model.frozen_blob.element_size())
+
+            for parameter in model.parameters():
+                if parameter.requires_grad:
+                    parameter.data.zero_()
+            optimizer.state.clear()
+            restored = load_lora_training_checkpoint(model, optimizer, checkpoint_dir)
+            self.assertEqual(restored["global_step"], 17)
+            self.assertTrue(optimizer.state)
+            for name, expected in expected_weights.items():
+                torch.testing.assert_close(dict(model.named_parameters())[name], expected)
+
+            (checkpoint_dir / "lora_training_checkpoint.json").unlink()
+            self.assertFalse(is_lora_training_checkpoint(checkpoint_dir))
+            with self.assertRaisesRegex(ValueError, "Incomplete or unsupported"):
+                load_lora_training_checkpoint(model, optimizer, checkpoint_dir)
 
 
 if __name__ == "__main__":

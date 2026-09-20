@@ -131,7 +131,9 @@ bash scripts/challenge/smoke.sh --phase train
 
 - `micro_batch_size: 1`，通过梯度累积获得所需全局 batch；
 - 开启 `enable_gradient_checkpointing`；
-- 使用 BF16，不使用 FP32 全参训练；
+- 使用 BF16，不使用 FP32 全参训练；当前单进程路径需设
+  `enable_mixed_precision: false`，这样模型会直接按 BF16 加载。该开关设为
+  `true` 会在并行包装前把完整模型物化为 FP32，24 GB 卡会在 LoRA 开始前即面临 OOM；
 - 优先冻结视觉编码器并使用 LoRA/参数高效微调；
 - 单卡不开 FSDP2 分片和 Distributed Muon；优化器优先 AdamW；
 - 先用极少量样本跑 2–5 step，再启动完整训练；
@@ -149,8 +151,13 @@ conda activate "$CHALLENGE_ENV_NAME"
 CUDA_VISIBLE_DEVICES=0 bash train.sh \
   tasks/vla/train_lingbotvla.py \
   configs/vla/robotwin/robotwin_4090_lora.yaml \
+  --model.model_path="$CHALLENGE_VLA_MODEL_DIR" \
+  --model.tokenizer_path="$CHALLENGE_QWEN3_DIR" \
+  --data.train_path="$CHALLENGE_TRAIN_DATA/clean_training_data.txt" \
   --train.output_dir "$CHALLENGE_OUTPUT_ROOT/run_001"
 ```
+
+`data.norm_stats_file` 必须指向仅由上述 clean 训练集重算得到的统计文件；不要直接复用来源范围不明或包含 randomized 数据的统计量。
 
 启动前用 `nvidia-smi` 确认无残留进程。训练日志中记录 Git commit、配置副本、随机种子和数据版本，但不记录 token 或密码。
 
@@ -160,7 +167,7 @@ LoRA checkpoint 中的 `lora_adapter` 不是可独立部署的完整模型。先
 
 ```bash
 python tools/merge_lora_adapter.py \
-  --base-model "$CHALLENGE_MODEL_ROOT/lingbot-vla-v2-6b-robotwin" \
+  --base-model "$CHALLENGE_VLA_MODEL_DIR" \
   --adapter "$CHALLENGE_OUTPUT_ROOT/run_001/checkpoints/global_step_<N>/lora_adapter" \
   --output "$CHALLENGE_OUTPUT_ROOT/run_001/checkpoints/global_step_<N>/merged_hf_ckpt"
 ```
@@ -172,6 +179,25 @@ export CHALLENGE_INFER_MODEL_DIR="$CHALLENGE_OUTPUT_ROOT/run_001/checkpoints/glo
 bash scripts/challenge/preflight.sh --phase infer
 bash scripts/challenge/smoke.sh --phase infer
 ```
+
+模拟器必须使用官方固定提交和独立 Python 3.10 环境，不要复用云机里已有的 `sim` 环境：
+
+```bash
+# 显式联网/安装步骤；每个动作都可单独重跑
+bash scripts/challenge/setup_robotwin.sh --clone
+bash scripts/challenge/setup_robotwin.sh --install-env
+bash scripts/challenge/setup_robotwin.sh --download-assets
+
+# 默认仅做只读验收：提交号、Python 依赖、CUDA、Vulkan、资产目录
+bash scripts/challenge/setup_robotwin.sh --verify
+```
+
+固定的 RoboTwin 提交为 `13c3c47ff4312dd62484bcd51be034af55c062d1`；独立环境位于
+`$CHALLENGE_ROBOTWIN_SIM_ENV_PREFIX`。安装脚本不会删除或覆盖其他 conda 环境。
+模拟器侧按该提交锁定 Python 3.10、Torch 2.4.1/CUDA 12.1、NumPy 1.26.4 和
+cuRobo v0.7.8；容器还必须暴露 NVIDIA `graphics` 能力并通过 Vulkan 检查。
+验收通过后，脚本会打印单任务、单回合、BF16 的 4090 smoke 命令。`--episodes 1`
+仅验证端到端连通性；正式 clean/randomized 本地评测必须省略该参数，保持默认 100 回合。
 
 4090 上先用 BF16 做管线验证。上游发布成绩采用 FP32 推理，约需 32 GB（还包含模拟器），因此单卡 24 GB 无法保证复现其数值；比赛若要求 FP32，应更换更大显存实例，而不是依赖 OOM 后的自动降级。
 

@@ -167,7 +167,9 @@ def main(usr_args):
 
     st_seed = 100000 * (1 + seed)
     suc_nums = []
-    test_num = 100
+    test_num = usr_args.get("test_num", 100)
+    if isinstance(test_num, bool) or not isinstance(test_num, int) or not 1 <= test_num <= 100:
+        raise ValueError(f"test_num must be an integer in [1, 100], got {test_num!r}")
     topk = 1
 
     # model = get_model(usr_args)

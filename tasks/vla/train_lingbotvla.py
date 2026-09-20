@@ -36,7 +36,12 @@ from lingbotvla.utils import helper
 from lingbotvla.utils.async_hf_checkpoint import AsyncHFCheckpointSaver
 from lingbotvla.utils.arguments import EvalArguments, DataArguments, ModelArguments, TrainingArguments, parse_args, save_args
 from lingbotvla.utils.dist_utils import all_reduce
-from lingbotvla.utils.lora_utils import add_lora_to_model, save_lora_adapter
+from lingbotvla.utils.lora_utils import (
+    add_lora_to_model,
+    is_lora_training_checkpoint,
+    load_lora_training_checkpoint,
+    save_lora_training_checkpoint,
+)
 from lingbotvla.models.config_registry import get_config_registry
 
 from lingbotvla.models.vla.vision_models.module_utils import (
@@ -367,6 +372,11 @@ def main():
             raise ValueError("LoRA is currently supported for one process/GPU with data_parallel_mode='ddp'.")
         if args.train.optimizer == "dist_muon":
             raise ValueError("LoRA does not support optimizer='dist_muon'; use adamw, anyprecision_adamw, or muon.")
+        if args.train.save_hf_weights or args.train.async_save_hf_weights:
+            raise ValueError(
+                "LoRA checkpoints are adapter-only. Keep save_hf_weights and async_save_hf_weights false, "
+                "then run tools/merge_lora_adapter.py for a deployable HF checkpoint."
+            )
     logger.info(f"Process rank: {args.train.global_rank}, world size: {args.train.world_size}")
     logger.info_rank0(json.dumps(asdict(args), indent=2))
     torch.cuda.set_device(f"cuda:{args.train.local_rank}")
@@ -669,13 +679,6 @@ def main():
     ) -> None:
         if args.train.global_rank != 0:
             return
-        if args.train.use_lora and checkpoint_path is not None:
-            adapter_path = save_lora_adapter(
-                lora_export_model,
-                os.path.join(checkpoint_path, "lora_adapter"),
-                metadata={"global_step": step, "epoch": epoch, "epoch_step": epoch_step},
-            )
-            logger.info_rank0(f"LoRA adapter saved at {adapter_path}")
         if not args.train.save_hf_weights or checkpoint_path is None:
             return
         hf_saver.submit(
@@ -689,6 +692,42 @@ def main():
             epoch=epoch,
             epoch_step=epoch_step,
         )
+
+    def save_training_checkpoint(step: int, epoch: int, epoch_step: int) -> str:
+        checkpoint_path = os.path.join(args.train.save_checkpoint_path, f"global_step_{step}")
+        extra_state = {
+            "global_step": step,
+            "lr_scheduler": lr_scheduler.state_dict(),
+            "train_dataloader": train_dataloader.state_dict(),
+            "environ_meter": environ_meter.state_dict(),
+            "torch_rng_state": torch.get_rng_state(),
+        }
+        checkpoint_state = {
+            "model": model,
+            "ema": None,
+            "optimizer": optimizer,
+            "extra_state": extra_state,
+        }
+        if args.train.use_lora:
+            save_lora_training_checkpoint(
+                lora_export_model,
+                optimizer,
+                checkpoint_path,
+                extra_state,
+                metadata={"global_step": step, "epoch": epoch, "epoch_step": epoch_step},
+            )
+        else:
+            Checkpointer.save(args.train.save_checkpoint_path, checkpoint_state, global_steps=step)
+        dist.barrier()
+        logger.info_rank0(f"Training checkpoint saved at {checkpoint_path} successfully!")
+        save_hf_checkpoint_best_effort(
+            checkpoint_path,
+            checkpoint_state,
+            step,
+            epoch,
+            epoch_step,
+        )
+        return checkpoint_path
 
     environ_meter = helper.EnvironMeter(
         config=model_config,
@@ -713,7 +752,9 @@ def main():
                     match = pattern.fullmatch(dirname)
                     if match:
                         step = int(match.group(1))
-                        tmp.append((step, os.path.join(checkpoint_dir, dirname)))
+                        candidate_path = os.path.join(checkpoint_dir, dirname)
+                        if not args.train.use_lora or is_lora_training_checkpoint(candidate_path):
+                            tmp.append((step, candidate_path))
                 tmp.sort(key=lambda x: x[0], reverse=True)
                 candidates = [p for _, p in tmp]
             if candidates:
@@ -724,17 +765,21 @@ def main():
         last_err = None
         loaded = False
         for cp in candidates:
-            state = {"model": model, "ema": None, "optimizer": optimizer, "extra_state": {}}  # cannot be None
             try:
-                Checkpointer.load(cp, state, allow_partial_load=getattr(args.train, 'allow_partial_checkpoint', False))
-                global_step = state["extra_state"]["global_step"]
+                if args.train.use_lora:
+                    extra_state = load_lora_training_checkpoint(lora_export_model, optimizer, cp)
+                else:
+                    state = {"model": model, "ema": None, "optimizer": optimizer, "extra_state": {}}
+                    Checkpointer.load(cp, state, allow_partial_load=getattr(args.train, 'allow_partial_checkpoint', False))
+                    extra_state = state["extra_state"]
+                global_step = extra_state["global_step"]
                 start_epoch = global_step // args.train.train_steps
                 start_step = global_step % args.train.train_steps
-                lr_scheduler.load_state_dict(state["extra_state"]["lr_scheduler"])
+                lr_scheduler.load_state_dict(extra_state["lr_scheduler"])
                 if start_step > 0 and args.train.resume_dataloader_state:
-                    train_dataloader.load_state_dict(state["extra_state"]["train_dataloader"])
-                environ_meter.load_state_dict(state["extra_state"]["environ_meter"])
-                torch.set_rng_state(state["extra_state"]["torch_rng_state"])
+                    train_dataloader.load_state_dict(extra_state["train_dataloader"])
+                environ_meter.load_state_dict(extra_state["environ_meter"])
+                torch.set_rng_state(extra_state["torch_rng_state"])
                 if start_step == 0:  # resume at the end of epoch
                     iter(train_dataloader)  # clear resume state and prefetch data
                 dist.barrier()
@@ -1146,38 +1191,9 @@ def main():
 
             if args.train.save_steps and global_step % args.train.save_steps == 0:
                 helper.empty_cache()
-                save_checkpoint_path = os.path.join(args.train.save_checkpoint_path, f"global_step_{global_step}")
-                
-                # param_to_name = {}
-                # for name, param in model.named_parameters():
-                #     param_to_name[name] = param
-                # for group in optimizer.state.values():
-                #     for param in group:
-                #         if param in param_to_name:
-                #             print(param_to_name[param])
-                #         else:
-                #             print("⚠️ Unidentified parameter in optimizer state")
-
-                state = {
-                    "model": model,
-                    "ema": None,
-                    "optimizer": optimizer,
-                    "extra_state": {
-                        "global_step": global_step,
-                        "lr_scheduler": lr_scheduler.state_dict(),
-                        "train_dataloader": train_dataloader.state_dict(),
-                        "environ_meter": environ_meter.state_dict(),
-                        "torch_rng_state": torch.get_rng_state(),
-                    },
-                }
                 if args.train.global_rank == 0:
                     writer.flush()
-                Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-                dist.barrier()
-                logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-                save_hf_checkpoint_best_effort(
-                    save_checkpoint_path,
-                    state,
+                save_checkpoint_path = save_training_checkpoint(
                     global_step,
                     current_epoch_for_eval,
                     current_epoch_step_for_eval,
@@ -1198,25 +1214,7 @@ def main():
             already_saved = args.train.save_steps and global_step % args.train.save_steps == 0
             if not already_saved:
                 helper.empty_cache()
-                save_checkpoint_path = os.path.join(args.train.save_checkpoint_path, f"global_step_{global_step}")
-                state = {
-                    "model": model,
-                    "ema": None,
-                    "optimizer": optimizer,
-                    "extra_state": {
-                        "global_step": global_step,
-                        "lr_scheduler": lr_scheduler.state_dict(),
-                        "train_dataloader": train_dataloader.state_dict(),
-                        "environ_meter": environ_meter.state_dict(),
-                        "torch_rng_state": torch.get_rng_state(),
-                    },
-                }
-                Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-                dist.barrier()
-                logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-                save_hf_checkpoint_best_effort(
-                    save_checkpoint_path,
-                    state,
+                save_checkpoint_path = save_training_checkpoint(
                     global_step,
                     current_epoch_for_eval,
                     current_epoch_step_for_eval,
@@ -1224,25 +1222,7 @@ def main():
             break
         if args.train.save_epochs and (epoch + 1) % args.train.save_epochs == 0:
             helper.empty_cache()
-            save_checkpoint_path = os.path.join(args.train.save_checkpoint_path, f"global_step_{global_step}")
-            state = {
-                "model": model,
-                "ema": None,
-                "optimizer": optimizer,
-                "extra_state": {
-                    "global_step": global_step,
-                    "lr_scheduler": lr_scheduler.state_dict(),
-                    "train_dataloader": train_dataloader.state_dict(),
-                    "environ_meter": environ_meter.state_dict(),
-                    "torch_rng_state": torch.get_rng_state(),
-                },
-            }
-            Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-            dist.barrier()
-            logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-            save_hf_checkpoint_best_effort(
-                save_checkpoint_path,
-                state,
+            save_checkpoint_path = save_training_checkpoint(
                 global_step,
                 current_epoch_for_eval,
                 current_epoch_step_for_eval,
@@ -1256,15 +1236,6 @@ def main():
     # release memory
     del optimizer, lr_scheduler
     helper.empty_cache()
-    # Ensure the last checkpoint has an HF conversion scheduled, then wait for async work.
-    if save_checkpoint_path is not None:
-        save_hf_checkpoint_best_effort(
-            save_checkpoint_path,
-            state,
-            global_step,
-            current_epoch_for_eval,
-            current_epoch_step_for_eval,
-        )
     hf_saver.wait_all_across_ranks()
 
     dist.barrier()

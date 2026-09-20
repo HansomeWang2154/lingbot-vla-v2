@@ -18,6 +18,7 @@
 #   --num_tasks         number of sim tasks, taken in order from the task list (default: 50, max: 50)
 #   --num_gpus          total GPUs (default: 1)
 #   --num_per_gpu       inference servers per GPU (default: 1)
+#   --episodes          episodes per task (default: 100; use 1 only for smoke)
 #   --use_length        chunk length (default: 50)
 #   --robo_name         robot config name (default: robotwin)
 #   --video_fps         video recording fps (default: 10)
@@ -51,6 +52,7 @@ pid_name="test_pid"
 num_tasks=50
 num_gpus=1
 num_per_gpu=1
+episodes=100
 use_length=50
 use_bf16=False
 use_fp32=True
@@ -74,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --num_tasks)         num_tasks="$2";         shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
         --num_per_gpu)       num_per_gpu="$2";       shift 2 ;;
+        --episodes)          episodes="$2";          shift 2 ;;
         --use_length)        use_length="$2";        shift 2 ;;
         --use_bf16)          use_bf16="$2";        shift 2 ;;
         --use_fp32)          use_fp32="$2";        shift 2 ;;
@@ -101,6 +104,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
             echo "  --num_gpus          total GPUs (default: 1)"
             echo "  --num_per_gpu       inference servers per GPU (default: 1)"
+            echo "  --episodes          episodes per task (default: 100; 1 is smoke-only)"
             echo "  --use_length        chunk length (default: 50)"
             echo "  --use_bf16          use bfloat16 inference (default: False)"
             echo "  --use_fp32          use float32 inference (default: True; release reproduction setting)"
@@ -170,6 +174,21 @@ if [ ! -d "$eval_workdir" ]; then
 fi
 echo -e "\033[36mSim workdir: ${eval_workdir}\033[0m"
 
+# The LingBot integration is validated against this exact RoboTwin revision.
+# Failing closed avoids silently producing incomparable simulator results.
+robotwin_revision="${ROBOTWIN_REVISION:-${CHALLENGE_ROBOTWIN_REVISION:-13c3c47ff4312dd62484bcd51be034af55c062d1}}"
+if [ ! -d "${eval_workdir}/.git" ]; then
+    echo -e "\033[31mError: ${eval_workdir} is not a Git checkout; cannot verify RoboTwin revision.\033[0m"
+    exit 1
+fi
+actual_robotwin_revision="$(git -C "${eval_workdir}" rev-parse HEAD 2>/dev/null || true)"
+if [ "${actual_robotwin_revision}" != "${robotwin_revision}" ]; then
+    echo -e "\033[31mError: RoboTwin HEAD is ${actual_robotwin_revision:-unknown}; expected ${robotwin_revision}.\033[0m"
+    echo "  Run scripts/challenge/setup_robotwin.sh --clone --verify."
+    exit 1
+fi
+echo -e "\033[36mRoboTwin revision: ${actual_robotwin_revision}\033[0m"
+
 # ===== Sim-side python (conda env: ${sim_env}) =====
 # conda_sh / sim_env / inference_env are resolved above (flag > env > builtin default).
 if [ ! -f "$conda_sh" ]; then
@@ -195,6 +214,10 @@ conda deactivate 2>/dev/null || true
 # ===== Task count validation =====
 if [ "$num_tasks" -gt 50 ]; then
     echo -e "\033[31mError: num_tasks ${num_tasks} exceeds max 50; use 1~50\033[0m"
+    exit 1
+fi
+if ! [[ "$episodes" =~ ^[0-9]+$ ]] || [ "$episodes" -lt 1 ] || [ "$episodes" -gt 100 ]; then
+    echo -e "\033[31mError: episodes must be an integer from 1 to 100.\033[0m"
     exit 1
 fi
 
@@ -431,6 +454,7 @@ launch_task() {
         --port ${port} \
         --robo_name ${robo_name} \
         --video_fps ${video_fps} \
+        --test_num ${episodes} \
         --eval_video_log ${enable_video} \
         --output_dir '${run_dir}/eval_results'" >> "$log_file" 2>&1 &
 
@@ -590,7 +614,7 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     echo "  Result: ${completed} done, ${skipped} skipped"
     echo "============================================"
     echo ""
-    printf "%-30s %-10s %-12s %-10s %-10s\n" "Task" "Time(s)" "Done(100)" "Success/Total" "Rate"
+    printf "%-30s %-10s %-12s %-10s %-10s\n" "Task" "Time(s)" "Done(${episodes})" "Success/Total" "Rate"
     echo "--------------------------------------------------------------------------------"
 
     total_success=0
@@ -621,13 +645,13 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
             fi
         fi
 
-        # Check whether all 100 episodes ran
+        # Check whether the requested number of episodes ran.
         if [ "$episodes_done" != "-" ]; then
             total_ep=$(echo "$episodes_done" | cut -d'/' -f2)
-            if [ "$total_ep" = "100" ]; then
+            if [ "$total_ep" = "${episodes}" ]; then
                 complete_mark="YES"
             else
-                complete_mark="NO(${total_ep}/100)"
+                complete_mark="NO(${total_ep}/${episodes})"
                 all_complete=false
             fi
         else
@@ -646,9 +670,9 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     fi
     printf "Summary: total %ds, success %d/%d, overall rate %s%%\n" "$total_duration" "$total_success" "$total_episodes" "$overall_rate"
     if $all_complete; then
-        echo "All tasks fully executed 100 episodes"
+        echo "All tasks fully executed ${episodes} episodes"
     else
-        echo "Warning: some tasks did not complete 100 episodes; check logs"
+        echo "Warning: some tasks did not complete ${episodes} episodes; check logs"
     fi
     echo "============================================"
 } | tee "$stats_file"

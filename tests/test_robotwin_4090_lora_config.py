@@ -16,6 +16,12 @@ class Robotwin4090LoraConfigTest(unittest.TestCase):
         with open(config_path, encoding="utf-8") as file:
             config = yaml.safe_load(file)
         self.assertEqual(set(config), {"model", "data", "train"})
+        self.assertTrue(
+            config["model"]["model_path"].endswith(
+                "/checkpoints/global_step_50000/hf_ckpt"
+            )
+        )
+        self.assertIn("clean", config["data"]["norm_stats_file"].lower())
         train = config["train"]
         self.assertTrue(train["use_lora"])
         self.assertEqual(train["data_parallel_mode"], "ddp")
@@ -23,7 +29,7 @@ class Robotwin4090LoraConfigTest(unittest.TestCase):
         self.assertEqual(train["micro_batch_size"], 1)
         self.assertEqual(train["gradient_accumulation_steps"], 4)
         self.assertEqual(train["global_batch_size"], 4)
-        self.assertTrue(train["enable_mixed_precision"])
+        self.assertFalse(train["enable_mixed_precision"])
         self.assertFalse(train["enable_fp32"])
         self.assertTrue(train["enable_gradient_checkpointing"])
         self.assertEqual(train["align_params"], {})
