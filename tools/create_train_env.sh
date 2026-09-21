@@ -9,10 +9,11 @@ RECREATE=0
 RESUME=0
 FLASH_ATTN_WHEEL="${FLASH_ATTN_WHEEL:-}"
 LEROBOT_SOURCE="${LEROBOT_SOURCE:-https://github.com/huggingface/lerobot/archive/refs/tags/v0.4.2.tar.gz}"
+UTILS3D_SOURCE="${UTILS3D_SOURCE:-git+https://github.com/EasternJournalist/utils3d.git@3fab839f0be9931dac7c8488eb0e1600c236e183}"
 
 usage() {
   cat <<'USAGE'
-Usage: bash tools/create_train_env.sh [--env-name NAME] [--recreate] [--resume] [--flash-attn-wheel PATH] [--lerobot-source PATH_OR_URL]
+Usage: bash tools/create_train_env.sh [--env-name NAME] [--recreate] [--resume] [--flash-attn-wheel PATH] [--lerobot-source PATH_OR_URL] [--utils3d-source PATH_OR_URL]
 
 Creates a clean Python 3.12 conda environment for lingbotvla training.
 Depth dependencies and local depth packages are always installed.
@@ -21,6 +22,7 @@ from that wheel. Otherwise flash-attn==2.8.3 is installed from pip.
 Use --resume to continue installing into an existing environment.
 Use --lerobot-source (or LEROBOT_SOURCE) to install the pinned LeRobot source
 from a local archive when the container cannot reach GitHub.
+Use --utils3d-source (or UTILS3D_SOURCE) for the equivalent pinned MoGe helper.
 USAGE
 }
 
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --lerobot-source)
       LEROBOT_SOURCE="${2:?--lerobot-source requires a value}"
+      shift 2
+      ;;
+    --utils3d-source)
+      UTILS3D_SOURCE="${2:?--utils3d-source requires a value}"
       shift 2
       ;;
     -h|--help)
@@ -139,7 +145,7 @@ PY
 python -m pip install --no-deps "${LEROBOT_SOURCE}"
 assert_torch_stack
 
-python -m pip install -e "${REPO_ROOT}" --no-deps
+python -m pip install -e "${REPO_ROOT}" --no-deps --no-build-isolation
 assert_torch_stack
 
 python -m pip install -r "${REPO_ROOT}/requirements-depth.txt"
@@ -153,18 +159,11 @@ assert_torch_stack
 # packages resolve their own broad dependencies. MoGe's pyproject allows
 # unpinned huggingface_hub/numpy/opencv/gradio, which breaks the training pins.
 # Its optional train/test dataloader imports `pipeline`, but LingBot training
-# only needs the MoGe model code, so skip that PyPI-only dependency here.
-python - <<PY
-import site
-from pathlib import Path
-
-site_packages = Path(site.getsitepackages()[0])
-pth = site_packages / "stablevla_local_depth.pth"
-pth.write_text("${REPO_ROOT}/lingbotvla/models/vla/vision_models/morgbd_clean/3rd/utils3d\n")
-print("wrote", pth)
-PY
-python -m pip install -e "${REPO_ROOT}/lingbotvla/models/vla/vision_models/lingbot-depth" --no-deps
-python -m pip install -e "${REPO_ROOT}/lingbotvla/models/vla/vision_models/MoGe"
+# only needs the MoGe model code, so skip that Git-only dependency here. Install
+# MoGe's pinned utils3d helper explicitly so it can also come from a local archive.
+python -m pip install "${UTILS3D_SOURCE}" --no-deps --no-build-isolation
+python -m pip install -e "${REPO_ROOT}/lingbotvla/models/vla/vision_models/lingbot-depth" --no-deps --no-build-isolation
+python -m pip install -e "${REPO_ROOT}/lingbotvla/models/vla/vision_models/MoGe" --no-deps --no-build-isolation
 assert_torch_stack
 
 python - <<'PY'
@@ -175,6 +174,10 @@ import trimesh
 import moge
 import mdm
 import utils3d
+from moge.model.v2 import MoGeModel
+
+assert callable(utils3d.pt.intrinsics_from_focal_center)
+assert callable(utils3d.pt.depth_map_to_point_map)
 
 print("depth imports ok")
 PY

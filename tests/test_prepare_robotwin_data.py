@@ -20,13 +20,13 @@ class PrepareRobotwinDataTests(unittest.TestCase):
     def _write_dataset_zip(self, base: Path, *, bad_member: str | None = None) -> Path:
         archive = base / module.ARCHIVE_NAME
         root = module.ARCHIVE_ROOT
-        tasks = [{"task_index": index, "task": f"instruction {index}"} for index in range(2)]
+        tasks = [{"task_index": index, "task": f"instruction {index}"} for index in range(4)]
         episodes = [
-            {"episode_index": index, "tasks": [f"instruction {index // 2}"]}
+            {"episode_index": index, "tasks": [f"instruction {index}"]}
             for index in range(4)
         ]
         with zipfile.ZipFile(archive, "w") as bundle:
-            bundle.writestr(f"{root}/meta/info.json", json.dumps({"total_tasks": 2, "total_episodes": 4}))
+            bundle.writestr(f"{root}/meta/info.json", json.dumps({"total_tasks": 4, "total_episodes": 4}))
             bundle.writestr(f"{root}/meta/tasks.jsonl", "\n".join(map(json.dumps, tasks)) + "\n")
             bundle.writestr(f"{root}/meta/episodes.jsonl", "\n".join(map(json.dumps, episodes)) + "\n")
             for episode_index in range(4):
@@ -52,12 +52,18 @@ class PrepareRobotwinDataTests(unittest.TestCase):
             summary = module.validate_dataset(
                 staging / module.ARCHIVE_ROOT,
                 expected_tasks=2,
+                expected_instructions=4,
                 expected_episodes=4,
                 expected_per_task=2,
             )
             self.assertEqual(actual, digest)
-            self.assertEqual(summary.task_count, 2)
+            self.assertEqual(summary.competition_task_count, 2)
+            self.assertEqual(summary.instruction_count, 4)
             self.assertEqual(summary.episode_count, 4)
+            self.assertEqual(summary.group_instruction_counts[0], {
+                "instruction 0": 1,
+                "instruction 1": 1,
+            })
 
     def test_rejects_randomized_member(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -79,7 +85,7 @@ class PrepareRobotwinDataTests(unittest.TestCase):
             with self.assertRaisesRegex(module.PreparationError, "escapes"):
                 module.inspect_archive(archive, expected_sha256=digest)
 
-    def test_rejects_unbalanced_task_coverage(self):
+    def test_rejects_unknown_episode_instruction(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             archive = self._write_dataset_zip(base)
@@ -90,12 +96,35 @@ class PrepareRobotwinDataTests(unittest.TestCase):
             module._extract_members(archive, members, staging)
             episodes = staging / module.ARCHIVE_ROOT / "meta" / "episodes.jsonl"
             rows = [json.loads(line) for line in episodes.read_text().splitlines()]
-            rows[-1]["tasks"] = ["instruction 0"]
+            rows[-1]["tasks"] = ["not in catalog"]
             episodes.write_text("\n".join(map(json.dumps, rows)) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(module.PreparationError, "episodes per task"):
+            with self.assertRaisesRegex(module.PreparationError, "unknown instruction"):
                 module.validate_dataset(
                     staging / module.ARCHIVE_ROOT,
                     expected_tasks=2,
+                    expected_instructions=4,
+                    expected_episodes=4,
+                    expected_per_task=2,
+                )
+
+    def test_rejects_noncontiguous_instruction_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            archive = self._write_dataset_zip(base)
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            members, _ = module.inspect_archive(archive, expected_sha256=digest)
+            staging = base / "staging"
+            staging.mkdir()
+            module._extract_members(archive, members, staging)
+            tasks = staging / module.ARCHIVE_ROOT / "meta" / "tasks.jsonl"
+            rows = [json.loads(line) for line in tasks.read_text().splitlines()]
+            rows[-1]["task_index"] = 9
+            tasks.write_text("\n".join(map(json.dumps, rows)) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(module.PreparationError, "not contiguous"):
+                module.validate_dataset(
+                    staging / module.ARCHIVE_ROOT,
+                    expected_tasks=2,
+                    expected_instructions=4,
                     expected_episodes=4,
                     expected_per_task=2,
                 )

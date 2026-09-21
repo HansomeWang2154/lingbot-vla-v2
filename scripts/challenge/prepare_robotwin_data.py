@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Safely prepare the competition-authorized RoboTwin LeRobot v2.1 archive.
 
-The official archive is one merged LeRobot dataset (50 tasks / 2500 episodes),
-not 50 independent dataset directories.  Consequently this program writes:
+The official archive is one merged LeRobot dataset (50 competition task groups /
+2500 episodes), not 50 independent dataset directories.  Its LeRobot task
+catalog contains natural-language instruction variants, not the 50 competition
+task identifiers.  Consequently this program writes:
 
 * ``clean_training_data.txt``: one ``robotwin <dataset-root>`` row for the
   LingBot ``MultiVLADataset`` loader; and
-* ``clean_training_tasks.jsonl``: 50 audit rows proving expected task
-  coverage without loading the same merged dataset 50 times.
+* ``clean_training_tasks.jsonl``: 50 audit rows proving the expected contiguous
+  50-episode competition groups without loading the merged dataset 50 times.
 
 Extraction is deliberately strict: the official archive filename and SHA-256
 are pinned, members must remain below the expected archive root, links and
@@ -37,6 +39,7 @@ ARCHIVE_ROOT = "RoboTwin_lerobot_v21"
 # Current official object from TianxingChen/RoboTwin2.0 commit 981c92a.
 ARCHIVE_SHA256 = "98a1d4bfb51d6e90469c9ef8d55e004a2cba01d20374adb68b554e48e9fe2cd8"
 EXPECTED_TASKS = 50
+EXPECTED_INSTRUCTIONS = 2413
 EXPECTED_EPISODES = 2500
 EXPECTED_EPISODES_PER_TASK = 50
 MAX_MEMBERS = 20_000
@@ -51,10 +54,13 @@ class PreparationError(RuntimeError):
 
 @dataclass(frozen=True)
 class DatasetSummary:
-    task_count: int
+    competition_task_count: int
+    instruction_count: int
     episode_count: int
-    task_episode_counts: dict[str, int]
-    tasks_by_index: dict[int, str]
+    episodes_per_competition_task: int
+    instruction_reference_counts: dict[str, int]
+    instructions_by_index: dict[int, str]
+    group_instruction_counts: dict[int, dict[str, int]]
 
 
 def sha256_file(path: Path, chunk_size: int = 8 * 1024 * 1024) -> str:
@@ -212,6 +218,7 @@ def validate_dataset(
     dataset_root: Path,
     *,
     expected_tasks: int = EXPECTED_TASKS,
+    expected_instructions: int = EXPECTED_INSTRUCTIONS,
     expected_episodes: int = EXPECTED_EPISODES,
     expected_per_task: int = EXPECTED_EPISODES_PER_TASK,
 ) -> DatasetSummary:
@@ -228,21 +235,29 @@ def validate_dataset(
     tasks = _load_jsonl(meta / "tasks.jsonl")
     episodes = _load_jsonl(meta / "episodes.jsonl")
 
-    task_by_index: dict[int, str] = {}
+    instruction_by_index: dict[int, str] = {}
     for row in tasks:
         index, task = row.get("task_index"), row.get("task")
         if not isinstance(index, int) or not isinstance(task, str) or not task.strip():
             raise PreparationError("Each tasks.jsonl row must contain task_index:int and task:str")
-        if index in task_by_index or task in task_by_index.values():
-            raise PreparationError("tasks.jsonl contains duplicate task indices or task strings")
-        task_by_index[index] = task
-    if set(task_by_index) != set(range(expected_tasks)):
+        if index in instruction_by_index:
+            raise PreparationError("tasks.jsonl contains duplicate task indices")
+        instruction_by_index[index] = task
+    if len(instruction_by_index) != expected_instructions:
         raise PreparationError(
-            f"Dataset task indices are not contiguous 0..{expected_tasks - 1}"
+            f"Instruction catalog has {len(instruction_by_index)} entries; "
+            f"expected {expected_instructions}"
         )
+    if set(instruction_by_index) != set(range(expected_instructions)):
+        raise PreparationError(
+            "Instruction catalog indices are not contiguous "
+            f"0..{expected_instructions - 1}"
+        )
+    instruction_catalog = set(instruction_by_index.values())
 
     episode_indices: set[int] = set()
     counts: collections.Counter[str] = collections.Counter()
+    episode_instruction: dict[int, str] = {}
     for row in episodes:
         episode_index = row.get("episode_index")
         episode_tasks = row.get("tasks")
@@ -251,24 +266,42 @@ def validate_dataset(
         episode_indices.add(episode_index)
         if not isinstance(episode_tasks, list) or len(episode_tasks) != 1 or not isinstance(episode_tasks[0], str):
             raise PreparationError("Each episode must contain exactly one string in its tasks field")
-        if episode_tasks[0] not in task_by_index.values():
-            raise PreparationError(f"Episode references unknown task: {episode_tasks[0]!r}")
+        if episode_tasks[0] not in instruction_catalog:
+            raise PreparationError(f"Episode references unknown instruction: {episode_tasks[0]!r}")
+        episode_instruction[episode_index] = episode_tasks[0]
         counts[episode_tasks[0]] += 1
 
     if set(episode_indices) != set(range(expected_episodes)):
         raise PreparationError(
             f"Dataset episode indices are not contiguous 0..{expected_episodes - 1}"
         )
-    bad_counts = {task: counts[task] for task in task_by_index.values() if counts[task] != expected_per_task}
-    if bad_counts:
+    if expected_tasks * expected_per_task != expected_episodes:
         raise PreparationError(
-            f"Expected {expected_per_task} clean episodes per task; mismatches: {bad_counts}"
+            "Competition group dimensions do not cover the expected episodes: "
+            f"{expected_tasks} groups * {expected_per_task} episodes != {expected_episodes}"
+        )
+
+    group_instruction_counts: dict[int, dict[str, int]] = {}
+    for group_index in range(expected_tasks):
+        start = group_index * expected_per_task
+        stop = start + expected_per_task
+        group_indices = list(range(start, stop))
+        if any(index not in episode_instruction for index in group_indices):
+            raise PreparationError(
+                f"Competition group {group_index} is not a contiguous "
+                f"{expected_per_task}-episode block ({start}..{stop - 1})"
+            )
+        group_instruction_counts[group_index] = dict(
+            collections.Counter(episode_instruction[index] for index in group_indices)
         )
 
     info_tasks = _first_int(info, ("total_tasks", "num_tasks"))
     info_episodes = _first_int(info, ("total_episodes", "num_episodes"))
-    if info_tasks is not None and info_tasks != expected_tasks:
-        raise PreparationError(f"info.json reports {info_tasks} tasks; expected {expected_tasks}")
+    if info_tasks is not None and info_tasks != len(instruction_by_index):
+        raise PreparationError(
+            f"info.json reports {info_tasks} instruction catalog entries; "
+            f"found {len(instruction_by_index)}"
+        )
     if info_episodes is not None and info_episodes != expected_episodes:
         raise PreparationError(
             f"info.json reports {info_episodes} episodes; expected {expected_episodes}"
@@ -296,7 +329,15 @@ def validate_dataset(
         raise PreparationError(
             "Video payload does not cover every metadata episode by index"
         )
-    return DatasetSummary(expected_tasks, expected_episodes, dict(counts), task_by_index)
+    return DatasetSummary(
+        competition_task_count=expected_tasks,
+        instruction_count=len(instruction_by_index),
+        episode_count=expected_episodes,
+        episodes_per_competition_task=expected_per_task,
+        instruction_reference_counts=dict(counts),
+        instructions_by_index=instruction_by_index,
+        group_instruction_counts=group_instruction_counts,
+    )
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -328,12 +369,25 @@ def write_manifests(
     _atomic_write(training_list, f"robotwin {dataset_root.resolve()}\n")
 
     task_rows = []
-    for task_id in canonical_tasks:
+    if len(canonical_tasks) != summary.competition_task_count:
+        raise PreparationError(
+            f"Canonical task list has {len(canonical_tasks)} entries but dataset validation "
+            f"found {summary.competition_task_count} competition groups"
+        )
+    for group_index, task_id in enumerate(canonical_tasks):
+        group_counts = summary.group_instruction_counts[group_index]
+        group_size = summary.episodes_per_competition_task
+        start = group_index * group_size
         task_rows.append(
             json.dumps(
                 {
                     "task_id": task_id,
-                    "expected_clean_episodes": EXPECTED_EPISODES_PER_TASK,
+                    "competition_task_index": group_index,
+                    "expected_clean_episodes": group_size,
+                    "observed_clean_episodes": sum(group_counts.values()),
+                    "episode_index_start": start,
+                    "episode_index_end": start + group_size - 1,
+                    "observed_instruction_variants": len(group_counts),
                     "dataset_root": str(dataset_root.resolve()),
                     "coverage_evidence": f"pinned_archive_sha256:{archive_sha256}",
                 },
@@ -351,16 +405,32 @@ def write_manifests(
                 "dataset_format": "LeRobot v2.1",
                 "dataset_root": str(dataset_root.resolve()),
                 "episode_count": summary.episode_count,
-                "episodes_per_task": EXPECTED_EPISODES_PER_TASK,
+                "episodes_per_competition_task": summary.episodes_per_competition_task,
                 "source": "TianxingChen/RoboTwin2.0::lerobot_dataset/RoboTwin_lerobot_v21.zip",
-                "task_count": summary.task_count,
-                "dataset_task_catalog": [
+                "competition_task_count": summary.competition_task_count,
+                "instruction_catalog_count": summary.instruction_count,
+                "dataset_instruction_catalog": [
                     {
                         "task_index": index,
                         "task": task,
-                        "observed_clean_episodes": summary.task_episode_counts[task],
                     }
-                    for index, task in sorted(summary.tasks_by_index.items())
+                    for index, task in sorted(summary.instructions_by_index.items())
+                ],
+                "competition_task_groups": [
+                    {
+                        "competition_task_index": group_index,
+                        "canonical_task_id": canonical_tasks[group_index],
+                        "episode_index_start": group_index
+                        * summary.episodes_per_competition_task,
+                        "episode_index_end": (group_index + 1)
+                        * summary.episodes_per_competition_task
+                        - 1,
+                        "observed_clean_episodes": sum(group_counts.values()),
+                        "observed_instruction_variants": len(group_counts),
+                    }
+                    for group_index, group_counts in sorted(
+                        summary.group_instruction_counts.items()
+                    )
                 ],
                 "training_scope": "competition-authorized clean trajectories only",
             },
@@ -449,7 +519,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 1
     print(f"[OK] clean dataset: {dataset}")
-    print(f"[OK] coverage: {summary.task_count} tasks, {summary.episode_count} episodes")
+    print(
+        f"[OK] coverage: {summary.competition_task_count} competition task groups, "
+        f"{summary.instruction_count} instruction variants, {summary.episode_count} episodes"
+    )
     print(f"[OK] loader list: {output_root / 'clean_training_data.txt'} (1 merged dataset row)")
     print(f"[OK] task audit: {output_root / 'clean_training_tasks.jsonl'} (50 rows)")
     return 0
