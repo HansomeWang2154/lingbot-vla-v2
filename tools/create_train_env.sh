@@ -8,16 +8,19 @@ ENV_NAME="lingbotvla"
 RECREATE=0
 RESUME=0
 FLASH_ATTN_WHEEL="${FLASH_ATTN_WHEEL:-}"
+LEROBOT_SOURCE="${LEROBOT_SOURCE:-https://github.com/huggingface/lerobot/archive/refs/tags/v0.4.2.tar.gz}"
 
 usage() {
   cat <<'USAGE'
-Usage: bash tools/create_train_env.sh [--env-name NAME] [--recreate] [--resume] [--flash-attn-wheel PATH]
+Usage: bash tools/create_train_env.sh [--env-name NAME] [--recreate] [--resume] [--flash-attn-wheel PATH] [--lerobot-source PATH_OR_URL]
 
 Creates a clean Python 3.12 conda environment for lingbotvla training.
 Depth dependencies and local depth packages are always installed.
 If --flash-attn-wheel or FLASH_ATTN_WHEEL is provided, flash-attn is installed
 from that wheel. Otherwise flash-attn==2.8.3 is installed from pip.
 Use --resume to continue installing into an existing environment.
+Use --lerobot-source (or LEROBOT_SOURCE) to install the pinned LeRobot source
+from a local archive when the container cannot reach GitHub.
 USAGE
 }
 
@@ -37,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --flash-attn-wheel)
       FLASH_ATTN_WHEEL="${2:?--flash-attn-wheel requires a value}"
+      shift 2
+      ;;
+    --lerobot-source)
+      LEROBOT_SOURCE="${2:?--lerobot-source requires a value}"
       shift 2
       ;;
     -h|--help)
@@ -129,8 +136,7 @@ import flash_attn
 print("flash_attn", getattr(flash_attn, "__version__", "unknown"))
 PY
 
-python -m pip install --no-deps \
-  "lerobot @ https://github.com/huggingface/lerobot/archive/refs/tags/v0.4.2.tar.gz"
+python -m pip install --no-deps "${LEROBOT_SOURCE}"
 assert_torch_stack
 
 python -m pip install -e "${REPO_ROOT}" --no-deps
