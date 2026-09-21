@@ -136,7 +136,9 @@ bash scripts/challenge/smoke.sh --phase train
 
 上游 `configs/vla/robotwin/robotwin.yaml` 是 32 卡示例，包含 `micro_batch_size: 32`、`global_batch_size: 1024` 和 FP32，不能直接用于 4090。竞赛配置至少应满足：
 
-- `micro_batch_size: 1`，通过梯度累积获得所需全局 batch；
+- 已在 24 GB RTX 4090 上实测 `micro_batch_size: 2`、
+  `gradient_accumulation_steps: 2`，全局 batch 为 4；若其他 4090 型号或
+  驱动环境出现 OOM，可回退到 `micro_batch_size: 1`、累积 4 次；
 - 开启 `enable_gradient_checkpointing`；
 - 使用 BF16，不使用 FP32 全参训练；当前单进程路径需设
   `enable_mixed_precision: false`，这样模型会直接按 BF16 加载。该开关设为
@@ -168,6 +170,9 @@ CUDA_VISIBLE_DEVICES=0 bash train.sh \
 `data.norm_stats_file` 必须指向仅由上述 clean 训练集重算得到的统计文件；不要直接复用来源范围不明或包含 randomized 数据的统计量。
 
 启动前用 `nvidia-smi` 确认无残留进程。训练日志中记录 Git commit、配置副本、随机种子和数据版本，但不记录 token 或密码。
+多进程数据加载时应让 `TMPDIR` 指向容器本机磁盘（例如
+`/tmp/lingbotvla-train`），避免将 Python multiprocessing 临时目录放在
+NFS 共享盘上产生 `.nfs*` 清理警告。
 
 ## 6. 推理预检
 
