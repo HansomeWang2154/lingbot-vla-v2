@@ -51,6 +51,34 @@ if TYPE_CHECKING:
 
 logger = logging.get_logger(__name__)
 
+_ALIGNMENT_CHECKPOINT_PREFIXES = (
+    "model.depth_align_embs",
+    "model.depth_align_head",
+    "model.future_depth_align_embs",
+    "model.future_depth_align_head",
+    "model.current_video_align_embs",
+    "model.current_video_align_head",
+    "model.future_video_align_embs",
+    "model.future_video_align_head",
+    "model.current_shared_task_proj",
+    "model.future_shared_task_proj",
+    "model.future_video_cls_align_emb",
+    "model.future_video_cls_head",
+)
+
+
+def _is_alignment_checkpoint_key(name: str) -> bool:
+    return any(
+        name == prefix or name.startswith(prefix + ".")
+        for prefix in _ALIGNMENT_CHECKPOINT_PREFIXES
+    )
+
+
+def _should_skip_disabled_alignment_checkpoint_key(
+    name: str, align_params: Optional[Dict[str, Any]]
+) -> bool:
+    return not align_params and _is_alignment_checkpoint_key(name)
+
 
 @contextmanager
 def init_empty_weights():
@@ -249,6 +277,7 @@ def load_model_weights(
 
     # Load checkpoint weight iterators
     state_dict_iterators = _load_state_dict(weights_path)
+    align_params = getattr(getattr(model, "config", None), "align_params", None) or {}
     for state_dict_iterator in tqdm(
         state_dict_iterators, desc="Loading checkpoint shards", disable=int(os.getenv("LOCAL_RANK", "-1")) > 0
     ):
@@ -269,6 +298,17 @@ def load_model_weights(
                     parameter_names.remove(name)
                     _dispatch_parameter(model, name, tensor, dtensor_factory)
             else:
+                # Released post-training checkpoints can contain auxiliary
+                # depth/video distillation heads.  These heads are deliberately
+                # absent when align_params is empty (for example, low-memory
+                # action-only LoRA fine-tuning), so their weights are safe to
+                # discard.  Keep strict post-training loading for every other
+                # unexpected key so architecture/config mismatches still fail.
+                if _should_skip_disabled_alignment_checkpoint_key(name, align_params):
+                    logger.info_rank0(
+                        f"Skipping disabled alignment parameter from checkpoint: {name}."
+                    )
+                    continue
                 if post_training:
                     error_msg = f"Unexpected key '{name}' found in state dict during Post-Training. This is not allowed!!!"
                     logger.info_rank0(error_msg)
