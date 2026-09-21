@@ -164,7 +164,7 @@ CUDA_VISIBLE_DEVICES=0 bash train.sh \
   --model.tokenizer_path="$CHALLENGE_QWEN3_DIR" \
   --data.train_path="$CHALLENGE_TRAIN_LIST" \
   --data.norm_stats_file="$CHALLENGE_CLEAN_NORM_STATS" \
-  --train.output_dir "$CHALLENGE_OUTPUT_ROOT/run_001"
+  --train.output_dir="$CHALLENGE_OUTPUT_ROOT/run_001"
 ```
 
 `data.norm_stats_file` 必须指向仅由上述 clean 训练集重算得到的统计文件；不要直接复用来源范围不明或包含 randomized 数据的统计量。
@@ -173,6 +173,150 @@ CUDA_VISIBLE_DEVICES=0 bash train.sh \
 多进程数据加载时应让 `TMPDIR` 指向容器本机磁盘（例如
 `/tmp/lingbotvla-train`），避免将 Python multiprocessing 临时目录放在
 NFS 共享盘上产生 `.nfs*` 清理警告。
+
+### 5.1 Batch 参数与已验证配置
+
+单卡训练中的有效全局 batch 为：
+
+```text
+global_batch_size = micro_batch_size × gradient_accumulation_steps × GPU 数量
+```
+
+- `micro_batch_size`：一次前向/反向在每张 GPU 上同时处理的样本数，主要影响激活显存和 GPU 吞吐；
+- `gradient_accumulation_steps`：累积多少个 micro-batch 后执行一次优化器更新，主要影响一次更新覆盖的样本数和单步耗时；
+- `global_batch_size`：一次优化器更新对应的总样本数，必须与前两项和数据并行 GPU 数量一致。
+
+同一台 24 GB RTX 4090 上的 5-step 实测如下；数值只用于容量和吞吐参考，不代表模型精度：
+
+| micro × accumulation | global batch | 稳定优化步耗时 | PyTorch 峰值显存 | 结论 |
+|---|---:|---:|---:|---|
+| `1 × 4` | 4 | 约 8–9 秒 | 约 13 GB | 稳定，但小 micro-batch 吞吐较低 |
+| `2 × 2` | 4 | 约 3.9–4.3 秒 | 约 13.65 GB | 默认推荐；保持 batch 语义且约快一倍 |
+| `2 × 4` | 8 | 约 7.9–8.2 秒 | 约 13.65 GB | 可运行，但改变全局 batch 和优化轨迹 |
+
+`nvidia-smi` 的显存读数会包含 CUDA 上下文和缓存，可能高于 PyTorch 报告的峰值。`GPU-Util` 是短采样窗口内 GPU 执行 kernel 的时间比例，不是模型或显存的使用百分比；本流程包含 CPU 视频解码、共享盘读取和小 batch，同步采样出现较低利用率不等于训练卡死，应同时观察 step 是否持续增长。
+
+若只改变 `micro_batch_size`，必须同步调整累积次数和 `global_batch_size`。例如 `2 × 2 × 1 GPU = 4`；不能把 micro-batch 改成 2 后仍把 `global_batch_size` 写成 4、累积次数写成 4。
+
+### 5.2 短程参数实验
+
+每组实验使用独立输出目录；不要让测试任务恢复或覆盖正式训练。下面命令以前台方式运行，便于直接观察报错并用 `Ctrl+C` 停止：
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source .challenge.env
+eval "$(conda shell.bash hook)"
+conda activate "$CHALLENGE_ENV_NAME"
+
+MICRO_BATCH=2
+ACCUM_STEPS=2
+GLOBAL_BATCH=$((MICRO_BATCH * ACCUM_STEPS))  # 本节固定为单 GPU
+RUN_DIR="$CHALLENGE_OUTPUT_ROOT/smoke_m${MICRO_BATCH}_a${ACCUM_STEPS}_$(date +%Y%m%d_%H%M%S)"
+export TMPDIR="/tmp/lingbotvla-smoke-${USER}"
+mkdir -p "$TMPDIR" "$RUN_DIR"
+
+CUDA_VISIBLE_DEVICES=0 NPROC_PER_NODE=1 WANDB_MODE=disabled \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+bash train.sh \
+  tasks/vla/train_lingbotvla.py \
+  configs/vla/robotwin/robotwin_4090_lora.yaml \
+  --model.model_path="$CHALLENGE_VLA_MODEL_DIR" \
+  --model.tokenizer_path="$CHALLENGE_QWEN3_DIR" \
+  --data.train_path="$CHALLENGE_TRAIN_LIST" \
+  --data.norm_stats_file="$CHALLENGE_CLEAN_NORM_STATS" \
+  --data.num_workers=4 \
+  --train.output_dir="$RUN_DIR" \
+  --train.micro_batch_size="$MICRO_BATCH" \
+  --train.gradient_accumulation_steps="$ACCUM_STEPS" \
+  --train.global_batch_size="$GLOBAL_BATCH" \
+  --train.max_steps=5 \
+  --train.save_steps=5 \
+  --train.enable_resume=false \
+  --train.use_wandb=false
+```
+
+5-step smoke 只能验证权重加载、OOM、吞吐、loss 是否有限以及 checkpoint 能否保存。因为学习率调度被压缩到 5 步，它不能用于比较最终精度。比较 `global_batch_size=4` 与 8 时还要控制总样本数：例如 `batch 4 × 10000 step` 与 `batch 8 × 5000 step` 都处理约 40000 个样本，但优化次数和学习率轨迹仍不同，最终选择必须使用比赛允许的本地验证数据，不能读取 randomized/隐藏评测集。
+
+### 5.3 可靠后台启动、查看和终止
+
+正式训练前确认 GPU 空闲，并为运行设置唯一名称。下面使用 `setsid` 创建独立进程组，SSH 断开后训练仍会继续；PID 文件保存的是该进程组组长：
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+source .challenge.env
+eval "$(conda shell.bash hook)"
+conda activate "$CHALLENGE_ENV_NAME"
+
+RUN_NAME="robotwin_4090_lora_$(date +%Y%m%d_%H%M%S)"
+RUN_DIR="$CHALLENGE_OUTPUT_ROOT/$RUN_NAME"
+PID_FILE="$CHALLENGE_SHARED_ROOT/logs/${RUN_NAME}.pid"
+REPO_ROOT="$(pwd)"
+MICRO_BATCH=2
+ACCUM_STEPS=2
+GLOBAL_BATCH=4
+export RUN_DIR PID_FILE REPO_ROOT MICRO_BATCH ACCUM_STEPS GLOBAL_BATCH
+export TMPDIR="/tmp/lingbotvla-train-${USER}"
+mkdir -p "$TMPDIR" "$RUN_DIR"
+
+nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader
+
+setsid -f bash -c '
+  cd "$REPO_ROOT"
+  echo $$ > "$PID_FILE"
+  exec env CUDA_VISIBLE_DEVICES=0 NPROC_PER_NODE=1 WANDB_MODE=disabled \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    bash train.sh \
+      tasks/vla/train_lingbotvla.py \
+      configs/vla/robotwin/robotwin_4090_lora.yaml \
+      --model.model_path="$CHALLENGE_VLA_MODEL_DIR" \
+      --model.tokenizer_path="$CHALLENGE_QWEN3_DIR" \
+      --data.train_path="$CHALLENGE_TRAIN_LIST" \
+      --data.norm_stats_file="$CHALLENGE_CLEAN_NORM_STATS" \
+      --train.output_dir="$RUN_DIR" \
+      --train.micro_batch_size="$MICRO_BATCH" \
+      --train.gradient_accumulation_steps="$ACCUM_STEPS" \
+      --train.global_batch_size="$GLOBAL_BATCH" \
+      --train.max_steps=10000 \
+      --train.save_steps=250 \
+      --train.enable_resume=true \
+      --train.use_wandb=false \
+      > "$RUN_DIR/launcher.log" 2>&1
+'
+```
+
+查看状态：
+
+```bash
+pid="$(cat "$PID_FILE")"
+ps -o pid,ppid,pgid,sid,stat,etime,cmd -p "$pid"
+tail -f "$RUN_DIR/launcher.log"
+```
+
+另开终端查看 GPU：
+
+```bash
+watch -n 1 nvidia-smi
+```
+
+终止前先核对 PID 对应的命令，然后向整个独立进程组发送 `TERM`；不要使用会误杀其他任务的 `pkill python`：
+
+```bash
+pid="$(cat "$PID_FILE")"
+ps -o pid,ppid,pgid,sid,stat,etime,cmd -p "$pid"
+kill -TERM -- -"$pid"
+sleep 5
+ps -eo pid,ppid,pgid,sid,stat,cmd | awk -v pgid="$pid" '$3 == pgid'
+nvidia-smi
+```
+
+`TERM` 不会临时生成 checkpoint；它只保留已经完整写入的最近检查点。只有确认普通终止无效后才使用 `kill -KILL -- -"$pid"`。可在停止前检查：
+
+```bash
+find "$RUN_DIR/checkpoints" -maxdepth 1 -type d -name 'global_step_*' \
+  -printf '%f\n' | sort -V
+```
+
+恢复训练时重复后台启动命令，保持同一 `RUN_DIR`、配置和数据，并设置 `--train.enable_resume=true`；加载日志应明确显示从最新完整 `global_step_*` 恢复。改变 batch、学习率或数据版本时应创建新运行目录，不要混入已有优化器状态。
 
 ## 6. 推理预检
 
