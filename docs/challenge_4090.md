@@ -136,9 +136,9 @@ bash scripts/challenge/smoke.sh --phase train
 
 上游 `configs/vla/robotwin/robotwin.yaml` 是 32 卡示例，包含 `micro_batch_size: 32`、`global_batch_size: 1024` 和 FP32，不能直接用于 4090。竞赛配置至少应满足：
 
-- 已在 24 GB RTX 4090 上实测 `micro_batch_size: 4`、
-  `gradient_accumulation_steps: 1`，全局 batch 为 4；若其他 4090 型号或
-  驱动环境出现 OOM，可依次回退到 `2 × 2` 或 `1 × 4`；
+- 已在 24 GB RTX 4090 上实测 `micro_batch_size: 8`、
+  `gradient_accumulation_steps: 1`，全局 batch 为 8；若其他 4090 型号或
+  驱动环境出现 OOM，可依次回退到 `4 × 1`、`2 × 2` 或 `1 × 4`；
 - 开启 `enable_gradient_checkpointing`；
 - 使用 BF16，不使用 FP32 全参训练；当前单进程路径需设
   `enable_mixed_precision: false`，这样模型会直接按 BF16 加载。该开关设为
@@ -193,8 +193,9 @@ global_batch_size = micro_batch_size × gradient_accumulation_steps × GPU 数�
 | `1 × 4` | 4 | 约 8–9 秒 | 约 13 GB | 稳定，但小 micro-batch 吞吐较低 |
 | `2 × 2` | 4 | 约 3.9–4.3 秒 | 约 13.65 GB | 稳定的低显存回退配置 |
 | `2 × 4` | 8 | 约 7.9–8.2 秒 | 约 13.65 GB | 可运行，但改变全局 batch 和优化轨迹 |
-| `4 × 1` | 4 | 约 1.88–1.94 秒 | 约 15.47 GB | 默认推荐；保持 batch 语义且吞吐最高 |
+| `4 × 1` | 4 | 约 1.88–1.94 秒 | 约 15.47 GB | 保留全局 batch 4 时的推荐配置 |
 | `4 × 2` | 8 | 约 3.8–4.1 秒 | 约 15.51 GB | 可运行，但改变全局 batch 和优化轨迹 |
+| `8 × 1` | 8 | 约 1.94–2.09 秒 | 约 19.19 GB | 默认推荐；单位时间样本吞吐最高 |
 
 `nvidia-smi` 的显存读数会包含 CUDA 上下文和缓存，可能高于 PyTorch 报告的峰值。`GPU-Util` 是短采样窗口内 GPU 执行 kernel 的时间比例，不是模型或显存的使用百分比；本流程包含 CPU 视频解码、共享盘读取和小 batch，同步采样出现较低利用率不等于训练卡死，应同时观察 step 是否持续增长。
 
@@ -210,7 +211,7 @@ source .challenge.env
 eval "$(conda shell.bash hook)"
 conda activate "$CHALLENGE_ENV_NAME"
 
-MICRO_BATCH=4
+MICRO_BATCH=8
 ACCUM_STEPS=1
 GLOBAL_BATCH=$((MICRO_BATCH * ACCUM_STEPS))  # 本节固定为单 GPU
 RUN_DIR="$CHALLENGE_OUTPUT_ROOT/smoke_m${MICRO_BATCH}_a${ACCUM_STEPS}_$(date +%Y%m%d_%H%M%S)"
@@ -253,9 +254,9 @@ RUN_NAME="robotwin_4090_lora_$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="$CHALLENGE_OUTPUT_ROOT/$RUN_NAME"
 PID_FILE="$CHALLENGE_SHARED_ROOT/logs/${RUN_NAME}.pid"
 REPO_ROOT="$(pwd)"
-MICRO_BATCH=4
+MICRO_BATCH=8
 ACCUM_STEPS=1
-GLOBAL_BATCH=4
+GLOBAL_BATCH=8
 export RUN_DIR PID_FILE REPO_ROOT MICRO_BATCH ACCUM_STEPS GLOBAL_BATCH
 export TMPDIR="/tmp/lingbotvla-train-${USER}"
 mkdir -p "$TMPDIR" "$RUN_DIR"
@@ -279,7 +280,7 @@ setsid -f bash -c '
       --train.gradient_accumulation_steps="$ACCUM_STEPS" \
       --train.global_batch_size="$GLOBAL_BATCH" \
       --train.max_steps=10000 \
-      --train.save_steps=250 \
+      --train.save_steps=1000 \
       --train.enable_resume=true \
       --train.use_wandb=false \
       > "$RUN_DIR/launcher.log" 2>&1
@@ -319,6 +320,22 @@ find "$RUN_DIR/checkpoints" -maxdepth 1 -type d -name 'global_step_*' \
 ```
 
 恢复训练时重复后台启动命令，保持同一 `RUN_DIR`、配置和数据，并设置 `--train.enable_resume=true`；加载日志应明确显示从最新完整 `global_step_*` 恢复。改变 batch、学习率或数据版本时应创建新运行目录，不要混入已有优化器状态。
+
+### 5.4 LoRA checkpoint 的内容与频率
+
+4090 竞赛配置默认 `save_steps: 1000`、`save_hf_weights: false`、
+`async_save_hf_weights: false`。因此每 1000 个优化步只保存一个可精确续训的
+LoRA checkpoint，不会重复写入冻结的 6B 基座。一次实测 checkpoint 约 146 MB，包含：
+
+- `lora_adapter/adapter_model.safetensors`：LoRA 和需要训练的任务头，约 48.5 MB；
+- `optimizer.pt`：AdamW 动量等恢复状态，约 97.3 MB；
+- `extra_state.pt`：学习率调度器、随机数、dataloader 和步数状态，通常不到 0.1 MB；
+- `lora_training_checkpoint.json`：完整性清单，明确记录 `frozen_base_included: false`。
+
+前三项都是**精确断点续训**所必需的最小集合。最终部署时只需要
+`lora_adapter` 与原始基座，通过 `tools/merge_lora_adapter.py` 生成一次完整的
+`merged_hf_ckpt`；不需要把训练期的 `optimizer.pt` 放入提交包。不要在启动命令中
+用较小的 `--train.save_steps` 覆盖配置，除非正在做容易中断的短期实验。
 
 ## 6. 推理预检
 
