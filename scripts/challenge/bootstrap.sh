@@ -95,6 +95,8 @@ umask 077
   printf 'export CHALLENGE_HF_QWEN_REPO=Qwen/Qwen3-VL-4B-Instruct\n'
   printf 'export CHALLENGE_HF_MOGE_REPO=Ruicheng/moge-2-vitb-normal\n'
   printf 'export CHALLENGE_TRAIN_DATA=%q\n' "${SHARED_ROOT}/data/train"
+  printf 'export CHALLENGE_TRAIN_LIST=%q\n' "${SHARED_ROOT}/data/train/clean_training_data.txt"
+  printf 'export CHALLENGE_CLEAN_NORM_STATS=%q\n' "${SHARED_ROOT}/data/train/clean_norm_stats.json"
   printf 'export CHALLENGE_LOCAL_VAL_DATA=%q\n' "${SHARED_ROOT}/data/local_validation"
   printf 'export CHALLENGE_OUTPUT_ROOT=%q\n' "${SHARED_ROOT}/outputs"
   printf 'export CHALLENGE_ROBOTWIN_REVISION=13c3c47ff4312dd62484bcd51be034af55c062d1\n'

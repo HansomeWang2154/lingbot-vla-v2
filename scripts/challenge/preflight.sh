@@ -94,12 +94,16 @@ challenge_ok 'Pinned Python/CUDA imports passed.'
 
 if [[ "${PHASE}" == train ]]; then
   challenge_require_shared_path "${CHALLENGE_TRAIN_DATA}" 'training data'
+  challenge_require_shared_path "${CHALLENGE_TRAIN_LIST}" 'clean training list'
+  challenge_require_shared_path "${CHALLENGE_CLEAN_NORM_STATS}" 'clean normalization statistics'
   challenge_require_shared_path "${CHALLENGE_LOCAL_VAL_DATA}" 'local validation data'
   challenge_require_shared_path "${CHALLENGE_VLA_MODEL_DIR}" 'LingBot-VLA base model'
   challenge_require_shared_path "${CHALLENGE_QWEN3_DIR}" 'Qwen3-VL model'
   [[ -f "${CHALLENGE_VLA_MODEL_DIR}/config.json" ]] || challenge_die 'LingBot-VLA config.json is missing.'
   [[ -f "${CHALLENGE_QWEN3_DIR}/config.json" ]] || challenge_die 'Qwen3-VL config.json is missing.'
   [[ -f "${CHALLENGE_MOGE_CHECKPOINT}" ]] || challenge_die "MoGe checkpoint is missing: ${CHALLENGE_MOGE_CHECKPOINT}"
+  [[ -f "${CHALLENGE_TRAIN_LIST}" ]] || challenge_die "Clean training list is missing: ${CHALLENGE_TRAIN_LIST}"
+  [[ -f "${CHALLENGE_CLEAN_NORM_STATS}" ]] || challenge_die "Clean normalization statistics are missing: ${CHALLENGE_CLEAN_NORM_STATS}"
   [[ ! -e "${CHALLENGE_TRAIN_DATA}/.competition_eval" ]] || challenge_die 'Training data contains the forbidden .competition_eval marker.'
   [[ "$(challenge_realpath "${CHALLENGE_TRAIN_DATA}")" != "$(challenge_realpath "${CHALLENGE_LOCAL_VAL_DATA}")" ]] || challenge_die 'Training and local-validation data resolve to the same directory.'
   if find "${CHALLENGE_TRAIN_DATA}" -iname '*randomized*' -print -quit | grep -q .; then

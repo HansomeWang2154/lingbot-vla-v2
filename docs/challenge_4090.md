@@ -121,9 +121,13 @@ $CHALLENGE_LOCAL_VAL_DATA/       # 自行从训练数据划分的本地验证集
 source .challenge.env
 eval "$(conda shell.bash hook)"
 conda activate "$CHALLENGE_ENV_NAME"
+bash scripts/challenge/compute_clean_norm_stats.sh
 bash scripts/challenge/preflight.sh --phase train
 bash scripts/challenge/smoke.sh --phase train
 ```
+
+统计脚本会先重新验证固定版本数据集的 50 个任务和 2500 条 clean 轨迹，再把结果写到
+`$CHALLENGE_CLEAN_NORM_STATS`。默认拒绝覆盖已有文件；明确需要重算时使用 `--overwrite`。
 
 ## 5. 单卡 24 GB 微调边界
 
@@ -153,7 +157,8 @@ CUDA_VISIBLE_DEVICES=0 bash train.sh \
   configs/vla/robotwin/robotwin_4090_lora.yaml \
   --model.model_path="$CHALLENGE_VLA_MODEL_DIR" \
   --model.tokenizer_path="$CHALLENGE_QWEN3_DIR" \
-  --data.train_path="$CHALLENGE_TRAIN_DATA/clean_training_data.txt" \
+  --data.train_path="$CHALLENGE_TRAIN_LIST" \
+  --data.norm_stats_file="$CHALLENGE_CLEAN_NORM_STATS" \
   --train.output_dir "$CHALLENGE_OUTPUT_ROOT/run_001"
 ```
 
