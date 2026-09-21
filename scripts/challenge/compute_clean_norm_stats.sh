@@ -21,9 +21,9 @@ challenge_path_is_within "${CHALLENGE_CLEAN_NORM_STATS}" "${CHALLENGE_SHARED_ROO
   challenge_die "Clean normalization output escapes the shared disk: ${CHALLENGE_CLEAN_NORM_STATS}"
 [[ -f "${CHALLENGE_TRAIN_LIST}" ]] || challenge_die "Missing clean training list: ${CHALLENGE_TRAIN_LIST}"
 
-python "${SCRIPT_DIR}/prepare_robotwin_data.py" validate \
-  --dataset "${CHALLENGE_TRAIN_DATA}/RoboTwin_lerobot_v21" \
-  --task-list "${REPO_ROOT}/competition/tasks.txt"
+python "${SCRIPT_DIR}/convert_robotwin_v21_to_v30.py" validate \
+  --source "${CHALLENGE_TRAIN_DATA}/RoboTwin_lerobot_v21" \
+  --output-root "${CHALLENGE_TRAIN_DATA}"
 
 if [[ -e "${CHALLENGE_CLEAN_NORM_STATS}" && "${OVERWRITE}" != 1 ]]; then
   challenge_die "Normalization file already exists: ${CHALLENGE_CLEAN_NORM_STATS}; pass --overwrite to recompute it."

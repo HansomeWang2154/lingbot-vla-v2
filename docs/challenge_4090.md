@@ -92,14 +92,17 @@ bash scripts/challenge/fetch_whitelist.sh dataset
 bash scripts/challenge/fetch_whitelist.sh models
 ```
 
-下载完成后核对路径；解压时只把 v2.1 clean 数据写到 `$CHALLENGE_TRAIN_DATA`。比赛只允许 50 个 clean 任务用于训练，`randomized` 仅用于官方评测，不得放入训练目录、用于调参或生成统计量。
+下载完成后核对路径。比赛只允许 50 个 clean 任务用于训练，`randomized` 仅用于官方评测，不得放入训练目录、用于调参或生成统计量。不要直接调用 `unzip`；准备脚本会先校验固定 SHA-256、安全解压并审计 v2.1 来源，再为 LeRobot 0.4.2 离线转换出 v3.0 训练副本：
 
 ```bash
-unzip -q "$CHALLENGE_DATASET_ARCHIVE" -d "$CHALLENGE_TRAIN_DATA"
+source .challenge.env
+eval "$(conda shell.bash hook)"
+conda activate "$CHALLENGE_ENV_NAME"
+bash scripts/challenge/prepare_robotwin_data.sh
 find "$CHALLENGE_TRAIN_DATA" -iname '*randomized*' -print
 ```
 
-第二条命令必须没有输出。不要从不受信任的压缩包直接以 root 身份覆盖系统目录；若比赛方更新文件，应先核对官方公告与校验值。
+最后一条命令必须没有输出。脚本保留只读审计意义上的 `RoboTwin_lerobot_v21` 来源目录，在同一文件系统中以硬链接暂存副本运行官方转换器（`push_to_hub=false`），验证 `v3.0`、2500 episodes 和 2413 instruction tasks 后才原子发布 `RoboTwin_lerobot_v30`。`clean_training_data.txt` 只包含 v3.0 目录的一行；失败不会切换训练清单，重复执行会重新验证并复用合格的 v3.0 产物。不要从不受信任的压缩包直接以 root 身份覆盖系统目录；若比赛方更新文件，应先核对官方公告与校验值。
 
 按 `.challenge.env` 中的路径放置：
 
@@ -109,7 +112,7 @@ $CHALLENGE_MODEL_ROOT/
 ├── Qwen3-VL-4B-Instruct/       # 至少包含 config.json
 └── moge-2-vitb-normal/model.pt
 
-$CHALLENGE_TRAIN_DATA/           # 仅官方允许的训练数据
+$CHALLENGE_TRAIN_DATA/           # v2.1 审计来源 + 本地转换的 v3.0 clean 训练副本
 $CHALLENGE_LOCAL_VAL_DATA/       # 自行从训练数据划分的本地验证集
 ```
 
@@ -126,7 +129,7 @@ bash scripts/challenge/preflight.sh --phase train
 bash scripts/challenge/smoke.sh --phase train
 ```
 
-统计脚本会先重新验证固定版本数据集的 50 个任务和 2500 条 clean 轨迹，再把结果写到
+统计脚本会先重新验证固定 v2.1 来源的 50 个任务和 2500 条 clean 轨迹、v3.0 元数据及单行训练清单，再把结果写到
 `$CHALLENGE_CLEAN_NORM_STATS`。默认拒绝覆盖已有文件；明确需要重算时使用 `--overwrite`。
 
 ## 5. 单卡 24 GB 微调边界

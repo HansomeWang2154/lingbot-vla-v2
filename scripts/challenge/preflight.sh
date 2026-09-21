@@ -112,9 +112,9 @@ if [[ "${PHASE}" == train ]]; then
   if [[ -n "${COMPETITION_EVAL_DATA:-}" ]]; then
     challenge_die 'COMPETITION_EVAL_DATA must not be mounted or exposed to a training process.'
   fi
-  python "${REPO_ROOT}/scripts/challenge/prepare_robotwin_data.py" validate \
-    --dataset "${CHALLENGE_TRAIN_DATA}/RoboTwin_lerobot_v21" \
-    --task-list "${REPO_ROOT}/competition/tasks.txt"
+  python "${REPO_ROOT}/scripts/challenge/convert_robotwin_v21_to_v30.py" validate \
+    --source "${CHALLENGE_TRAIN_DATA}/RoboTwin_lerobot_v21" \
+    --output-root "${CHALLENGE_TRAIN_DATA}"
   challenge_ok 'Training inputs are present and the competition-evaluation boundary is intact.'
 else
   [[ -n "${CHALLENGE_INFER_MODEL_DIR:-}" ]] || challenge_die 'Set CHALLENGE_INFER_MODEL_DIR to an exported hf_ckpt directory.'
