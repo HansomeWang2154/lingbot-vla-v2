@@ -136,9 +136,9 @@ bash scripts/challenge/smoke.sh --phase train
 
 上游 `configs/vla/robotwin/robotwin.yaml` 是 32 卡示例，包含 `micro_batch_size: 32`、`global_batch_size: 1024` 和 FP32，不能直接用于 4090。竞赛配置至少应满足：
 
-- 已在 24 GB RTX 4090 上实测 `micro_batch_size: 2`、
-  `gradient_accumulation_steps: 2`，全局 batch 为 4；若其他 4090 型号或
-  驱动环境出现 OOM，可回退到 `micro_batch_size: 1`、累积 4 次；
+- 已在 24 GB RTX 4090 上实测 `micro_batch_size: 4`、
+  `gradient_accumulation_steps: 1`，全局 batch 为 4；若其他 4090 型号或
+  驱动环境出现 OOM，可依次回退到 `2 × 2` 或 `1 × 4`；
 - 开启 `enable_gradient_checkpointing`；
 - 使用 BF16，不使用 FP32 全参训练；当前单进程路径需设
   `enable_mixed_precision: false`，这样模型会直接按 BF16 加载。该开关设为
@@ -191,8 +191,10 @@ global_batch_size = micro_batch_size × gradient_accumulation_steps × GPU 数�
 | micro × accumulation | global batch | 稳定优化步耗时 | PyTorch 峰值显存 | 结论 |
 |---|---:|---:|---:|---|
 | `1 × 4` | 4 | 约 8–9 秒 | 约 13 GB | 稳定，但小 micro-batch 吞吐较低 |
-| `2 × 2` | 4 | 约 3.9–4.3 秒 | 约 13.65 GB | 默认推荐；保持 batch 语义且约快一倍 |
+| `2 × 2` | 4 | 约 3.9–4.3 秒 | 约 13.65 GB | 稳定的低显存回退配置 |
 | `2 × 4` | 8 | 约 7.9–8.2 秒 | 约 13.65 GB | 可运行，但改变全局 batch 和优化轨迹 |
+| `4 × 1` | 4 | 约 1.88–1.94 秒 | 约 15.47 GB | 默认推荐；保持 batch 语义且吞吐最高 |
+| `4 × 2` | 8 | 约 3.8–4.1 秒 | 约 15.51 GB | 可运行，但改变全局 batch 和优化轨迹 |
 
 `nvidia-smi` 的显存读数会包含 CUDA 上下文和缓存，可能高于 PyTorch 报告的峰值。`GPU-Util` 是短采样窗口内 GPU 执行 kernel 的时间比例，不是模型或显存的使用百分比；本流程包含 CPU 视频解码、共享盘读取和小 batch，同步采样出现较低利用率不等于训练卡死，应同时观察 step 是否持续增长。
 
@@ -208,8 +210,8 @@ source .challenge.env
 eval "$(conda shell.bash hook)"
 conda activate "$CHALLENGE_ENV_NAME"
 
-MICRO_BATCH=2
-ACCUM_STEPS=2
+MICRO_BATCH=4
+ACCUM_STEPS=1
 GLOBAL_BATCH=$((MICRO_BATCH * ACCUM_STEPS))  # 本节固定为单 GPU
 RUN_DIR="$CHALLENGE_OUTPUT_ROOT/smoke_m${MICRO_BATCH}_a${ACCUM_STEPS}_$(date +%Y%m%d_%H%M%S)"
 export TMPDIR="/tmp/lingbotvla-smoke-${USER}"
@@ -251,8 +253,8 @@ RUN_NAME="robotwin_4090_lora_$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="$CHALLENGE_OUTPUT_ROOT/$RUN_NAME"
 PID_FILE="$CHALLENGE_SHARED_ROOT/logs/${RUN_NAME}.pid"
 REPO_ROOT="$(pwd)"
-MICRO_BATCH=2
-ACCUM_STEPS=2
+MICRO_BATCH=4
+ACCUM_STEPS=1
 GLOBAL_BATCH=4
 export RUN_DIR PID_FILE REPO_ROOT MICRO_BATCH ACCUM_STEPS GLOBAL_BATCH
 export TMPDIR="/tmp/lingbotvla-train-${USER}"

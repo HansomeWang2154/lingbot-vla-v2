@@ -41,14 +41,14 @@ train:
   lora_modules_to_save: [state_proj, action_in_proj, action_out_proj, action_time_mlp_in, action_time_mlp_out]
 
   # One process/GPU; verified on a 24 GB RTX 4090.
-  # Effective global batch = 1 GPU * micro batch 2 * accumulation 2 = 4.
+  # Effective global batch = 1 GPU * micro batch 4 * accumulation 1 = 4.
   data_parallel_mode: ddp
   optimizer: adamw
   lr: 1.0e-4
   lr_min: 1.0e-5
   lr_decay_style: cosine
-  micro_batch_size: 2
-  gradient_accumulation_steps: 2
+  micro_batch_size: 4
+  gradient_accumulation_steps: 1
   global_batch_size: 4
   num_train_epochs: 100
   max_steps: 10000

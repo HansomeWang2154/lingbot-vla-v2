@@ -134,7 +134,7 @@ LingBot-VLA 2.0 appends current and future perceptual queries to the visual/text
 > randomized data. Use the single-RTX-4090 workflow in
 > [docs/challenge_4090.md](docs/challenge_4090.md) and the submission checks in
 > [competition/README.md](competition/README.md) instead.
-> The 4090 guide includes clean-only data preparation, the verified `2 × 2`
+> The 4090 guide includes clean-only data preparation, the verified `4 × 1`
 > LoRA batch profile, short parameter benchmarks, detached launch/monitor/stop
 > commands, checkpoint resume, adapter merging, and inference preflight.
 
