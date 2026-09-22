@@ -368,12 +368,32 @@ bash scripts/challenge/setup_robotwin.sh --download-assets
 bash scripts/challenge/setup_robotwin.sh --verify
 ```
 
+若云容器访问 GitHub 源码仓库过慢，可先把官方 PyTorch3D `stable` 源码包下载到
+共享盘，再仅对本次安装指定本地来源：
+
+```bash
+# 使用已经校验并解压到共享盘的官方 PyTorch3D stable 源码目录
+export CHALLENGE_PYTORCH3D_SOURCE="$CHALLENGE_SHARED_ROOT/src/pytorch3d-stable"
+
+# 从本地源码安装其余模拟器依赖，避免再次克隆 GitHub
+bash scripts/challenge/setup_robotwin.sh --install-env
+```
+
+本地源码必须来自官方仓库并在使用前记录 SHA-256；不要把此变量写成来源不明的
+镜像地址。未设置该变量时仍使用上游默认的 `git+https://github.com/facebookresearch/pytorch3d.git@stable`。
+
 固定的 RoboTwin 提交为 `13c3c47ff4312dd62484bcd51be034af55c062d1`；独立环境位于
 `$CHALLENGE_ROBOTWIN_SIM_ENV_PREFIX`。安装脚本不会删除或覆盖其他 conda 环境。
 模拟器侧按该提交锁定 Python 3.10、Torch 2.4.1/CUDA 12.1、NumPy 1.26.4 和
 cuRobo v0.7.8；容器还必须暴露 NVIDIA `graphics` 能力并通过 Vulkan 检查。
 验收通过后，脚本会打印单任务、单回合、BF16 的 4090 smoke 命令。`--episodes 1`
 仅验证端到端连通性；正式 clean/randomized 本地评测必须省略该参数，保持默认 100 回合。
+
+评测启动器默认最多等待 900 秒，直到所有推理端口完成模型加载并开始监听；可用
+`--inference_ready_timeout <秒>` 显式调整。若模型加载失败，或推理服务在任务运行中
+退出，启动器会立即打印对应推理日志的末尾并以非零状态结束，不会让仿真客户端无限
+等待。单回合 smoke 得到 `0/1` 仍可表示链路验收通过：它说明该随机种子的任务失败，
+不能用一个 episode 的结果估计模型成功率。
 
 4090 上先用 BF16 做管线验证。上游发布成绩采用 FP32 推理，约需 32 GB（还包含模拟器），因此单卡 24 GB 无法保证复现其数值；比赛若要求 FP32，应更换更大显存实例，而不是依赖 OOM 后的自动降级。
 

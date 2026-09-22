@@ -124,7 +124,7 @@ sim_python() {
 install_sim_env() {
   verify_checkout
   require_conda
-  local marker python_bin curobo_dir curobo_origin sapien_dir mplib_dir urdf_loader planner
+  local marker python_bin pytorch3d_source curobo_dir curobo_origin sapien_dir mplib_dir urdf_loader planner
   marker="${CHALLENGE_ROBOTWIN_SIM_ENV_PREFIX}/.robotwin-source-revision"
   python_bin="$(sim_python)"
 
@@ -139,10 +139,20 @@ install_sim_env() {
   fi
 
   PYTHONNOUSERSITE=1 "${python_bin}" -m pip install --upgrade pip
+  # SAPIEN still imports pkg_resources, which setuptools 81+ no longer ships.
+  PYTHONNOUSERSITE=1 "${python_bin}" -m pip install setuptools==69.5.1
   PYTHONNOUSERSITE=1 "${python_bin}" -m pip install -r "${CHALLENGE_ROBOTWIN_ROOT}/script/requirements.txt"
   PYTHONNOUSERSITE=1 "${python_bin}" -m pip install numpy==1.26.4
-  PYTHONNOUSERSITE=1 "${python_bin}" -m pip install \
-    'git+https://github.com/facebookresearch/pytorch3d.git@stable' --no-build-isolation
+  # The default matches upstream.  A verified local archive/directory can be
+  # supplied on restricted cloud links without weakening the remaining checks.
+  pytorch3d_source="${CHALLENGE_PYTORCH3D_SOURCE:-git+https://github.com/facebookresearch/pytorch3d.git@stable}"
+  if PYTHONNOUSERSITE=1 "${python_bin}" -c \
+      'import pytorch3d; assert pytorch3d.__version__ == "0.7.8"' 2>/dev/null; then
+    challenge_ok 'PyTorch3D 0.7.8 is already installed.'
+  else
+    PYTHONNOUSERSITE=1 "${python_bin}" -m pip install \
+      "${pytorch3d_source}" --no-build-isolation
+  fi
 
   # Apply the two source fixes performed by the pinned upstream _install.sh,
   # but validate each target and make the operation safe to repeat.

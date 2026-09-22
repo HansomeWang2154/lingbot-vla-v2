@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from lingbotvla.models.vla.lingbot_vla.configuration_lingbot_vla import LingbotVLAV2Config
 from lingbotvla.models.vla.lingbot_vla.modeling_lingbot_vla_v2 import LingbotVlaV2Policy
 from lingbotvla.models.vla.lingbot_vla.qwen3vl_in_vla import apply_lingbot_qwen3_vl_patch
+from lingbotvla.models.module_utils import _should_skip_disabled_alignment_checkpoint_key
 
 from lingbotvla.data.vla_data.utils import FeatureTransform
 from lingbotvla.models import build_processor
@@ -227,11 +228,25 @@ class LingbotVLAv2Server:
     def load_model_weights(self, path_to_pi_model, strict=True):
         all_safetensors = glob(os.path.join(path_to_pi_model, "*.safetensors"))
         merged_weights = {}
+        skipped_alignment_keys = []
+        align_params = getattr(self.vla.config, "align_params", None) or {}
 
         for file_path in tqdm(all_safetensors):
             with safe_open(file_path, framework="pt", device="cpu") as f:
                 for key in f.keys():
+                    # Released base checkpoints include auxiliary distillation
+                    # heads. Action-only inference intentionally omits those
+                    # modules when align_params is empty, but every other key
+                    # must still pass strict loading.
+                    if _should_skip_disabled_alignment_checkpoint_key(key, align_params):
+                        skipped_alignment_keys.append(key)
+                        continue
                     merged_weights[key] = f.get_tensor(key)
+        if skipped_alignment_keys:
+            print(
+                "Skipping disabled auxiliary alignment weights: "
+                f"{len(skipped_alignment_keys)} tensors"
+            )
         self.vla.load_state_dict(merged_weights, strict=strict)
 
     def merge_qwen_config(self, qwen_config):

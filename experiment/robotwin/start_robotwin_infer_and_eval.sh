@@ -14,6 +14,7 @@
 #   --conda_sh          conda.sh path to source (default: /path/to/miniconda3/etc/profile.d/conda.sh, or $CONDA_SH)
 #   --output_base       result output path (default: /path/to/VLABenchmarkResult, or $OUTPUT_BASE)
 #   --start_port        starting port (default: 9330)
+#   --inference_ready_timeout seconds to wait for inference ports (default: 900)
 #   --pid_name          PID file prefix (default: test_pid)
 #   --num_tasks         number of sim tasks, taken in order from the task list (default: 50, max: 50)
 #   --num_gpus          total GPUs (default: 1)
@@ -48,6 +49,7 @@ inference_env="${INFERENCE_ENV:-lingbotvla}"
 sim_env="${SIM_ENV:-RoboTwin}"
 conda_sh="${CONDA_SH:-/path/to/miniconda3/etc/profile.d/conda.sh}"
 start_port=9330
+inference_ready_timeout=900
 pid_name="test_pid"
 num_tasks=50
 num_gpus=1
@@ -72,6 +74,7 @@ while [[ $# -gt 0 ]]; do
         --eval_workdir)      eval_workdir="$2";      shift 2 ;;
         --output_base)       output_base="$2";       shift 2 ;;
         --start_port)        start_port="$2";        shift 2 ;;
+        --inference_ready_timeout) inference_ready_timeout="$2"; shift 2 ;;
         --pid_name)          pid_name="$2";          shift 2 ;;
         --num_tasks)         num_tasks="$2";         shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
@@ -100,6 +103,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --conda_sh          conda.sh path to source (default: /path/to/miniconda3/etc/profile.d/conda.sh, or \$CONDA_SH)"
             echo "  --output_base       result output path"
             echo "  --start_port        starting port (default: 9330)"
+            echo "  --inference_ready_timeout seconds to wait for inference ports (default: 900)"
             echo "  --pid_name          PID file prefix (default: test_pid)"
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
             echo "  --num_gpus          total GPUs (default: 1)"
@@ -122,6 +126,23 @@ done
 
 
 # ===== Common environment =====
+signal_managed_process() {
+    local signal_name=$1
+    local pid=$2
+    local pgid
+
+    [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null || return 0
+    pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    # Every worker is launched with setsid, so its PID should equal its PGID.
+    # If that invariant is not true, signal only the PID rather than risk
+    # terminating the caller's SSH/session process group.
+    if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then
+        kill -"$signal_name" -- -"$pgid" 2>/dev/null || true
+    else
+        kill -"$signal_name" "$pid" 2>/dev/null || true
+    fi
+}
+
 # Cleanup: kill all child processes on exit / Ctrl-C / kill
 cleanup() {
     echo ""
@@ -130,16 +151,14 @@ cleanup() {
     for slot in $(seq 0 $((num_slots-1))); do
         local_pid=${inference_pids[$slot]:-0}
         if [ "$local_pid" != "0" ] && kill -0 "$local_pid" 2>/dev/null; then
-            kill -TERM -- -"$(ps -o pgid= -p "$local_pid" 2>/dev/null | tr -d ' ')" 2>/dev/null \
-                || kill -TERM "$local_pid" 2>/dev/null || true
+            signal_managed_process TERM "$local_pid"
         fi
     done
     # Kill eval workers
     for slot in $(seq 0 $((num_slots-1))); do
         local_pid=${slot_pid[$slot]:-0}
         if [ "$local_pid" != "0" ] && kill -0 "$local_pid" 2>/dev/null; then
-            kill -TERM -- -"$(ps -o pgid= -p "$local_pid" 2>/dev/null | tr -d ' ')" 2>/dev/null \
-                || kill -TERM "$local_pid" 2>/dev/null || true
+            signal_managed_process TERM "$local_pid"
         fi
     done
     sleep 1
@@ -147,14 +166,17 @@ cleanup() {
     for slot in $(seq 0 $((num_slots-1))); do
         for local_pid in ${inference_pids[$slot]:-0} ${slot_pid[$slot]:-0}; do
             if [ "$local_pid" != "0" ] && kill -0 "$local_pid" 2>/dev/null; then
-                kill -KILL -- -"$(ps -o pgid= -p "$local_pid" 2>/dev/null | tr -d ' ')" 2>/dev/null \
-                    || kill -KILL "$local_pid" 2>/dev/null || true
+                signal_managed_process KILL "$local_pid"
             fi
         done
     done
     echo -e "\033[33m=== Cleanup done ===\033[0m"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# A signal trap that merely returns lets the scheduler continue launching
+# retries. Exit explicitly; the EXIT trap then performs cleanup exactly once.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 
 
@@ -218,6 +240,10 @@ if [ "$num_tasks" -gt 50 ]; then
 fi
 if ! [[ "$episodes" =~ ^[0-9]+$ ]] || [ "$episodes" -lt 1 ] || [ "$episodes" -gt 100 ]; then
     echo -e "\033[31mError: episodes must be an integer from 1 to 100.\033[0m"
+    exit 1
+fi
+if ! [[ "$inference_ready_timeout" =~ ^[0-9]+$ ]] || [ "$inference_ready_timeout" -lt 1 ]; then
+    echo -e "\033[31mError: inference_ready_timeout must be a positive integer.\033[0m"
     exit 1
 fi
 
@@ -293,7 +319,7 @@ for slot in $(seq 0 $((num_slots-1))); do
         inference_script_for_module="${inference_script_for_module#${inference_workdir%/}/}"
     fi
     inference_module=$(echo "${inference_script_for_module}" | sed 's|/|.|g; s|\.py$||')
-    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -m ${inference_module} \
+    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -u -m ${inference_module} \
         --model_path '${model_path}' \
         --use_length '${use_length}' \
         --use_bf16 "${use_bf16}" \
@@ -320,6 +346,53 @@ for slot in $(seq 0 $((num_slots-1))); do
     fi
 done
 active_inference=$num_slots
+
+# Do not start simulator clients until every inference server has finished
+# loading the model and is listening. This also surfaces model-load failures
+# immediately instead of leaving the simulator blocked on a dead websocket.
+inference_process_alive() {
+    local pid=$1
+    local state
+    kill -0 "$pid" 2>/dev/null || return 1
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    [ -n "$state" ] && [[ "$state" != Z* ]]
+}
+
+echo -e "\033[36mWaiting up to ${inference_ready_timeout}s for inference ports...\033[0m"
+ready_deadline=$((SECONDS + inference_ready_timeout))
+last_ready_report=-1
+while true; do
+    ready_count=0
+    for slot in $(seq 0 $((num_slots-1))); do
+        inf_pid=${inference_pids[$slot]}
+        port=$(( start_port + slot ))
+        log_file="${run_dir}/inference_logs/qwenpi_slot${slot}_gpu$((slot % num_gpus))_port${port}.log"
+
+        if ! inference_process_alive "$inf_pid"; then
+            echo -e "\033[31mError: inference server for slot ${slot} exited before port ${port} became ready.\033[0m"
+            echo -e "\033[31mLast 80 log lines (${log_file}):\033[0m"
+            tail -n 80 "$log_file" 2>/dev/null || true
+            exit 1
+        fi
+        if ss -ltnH "sport = :${port}" 2>/dev/null | grep -q .; then
+            ready_count=$((ready_count + 1))
+        fi
+    done
+
+    if [ "$ready_count" -eq "$num_slots" ]; then
+        echo -e "\033[32mAll ${num_slots} inference servers are ready.\033[0m"
+        break
+    fi
+    if [ "$SECONDS" -ge "$ready_deadline" ]; then
+        echo -e "\033[31mError: only ${ready_count}/${num_slots} inference servers became ready within ${inference_ready_timeout}s.\033[0m"
+        exit 1
+    fi
+    if [ "$ready_count" -ne "$last_ready_report" ]; then
+        echo -e "\033[36m  inference readiness: ${ready_count}/${num_slots}\033[0m"
+        last_ready_report=$ready_count
+    fi
+    sleep 2
+done
 
 # ============================================================
 # Phase 2: queue-scheduled sim tasks
@@ -479,7 +552,7 @@ shutdown_inference_slot() {
     local slot=$1
     local inf_pid=${inference_pids[$slot]}
     if [ "$inf_pid" != "0" ] && kill -0 "$inf_pid" 2>/dev/null; then
-        kill "$inf_pid" 2>/dev/null
+        signal_managed_process TERM "$inf_pid"
         echo -e "\033[36m  [release] slot $slot inference server (PID: ${inf_pid}) stopped, remaining: $((active_inference - 1))\033[0m"
     fi
     inference_pids[$slot]=0
@@ -517,6 +590,20 @@ while [ $((completed + skipped)) -lt $total_tasks ] && has_running; do
 
         # Skip free slots
         [ "$pid" = "0" ] && continue
+
+        # A simulator client can wait forever if its websocket server dies.
+        # Fail the whole run promptly and preserve both logs for diagnosis.
+        inf_pid=${inference_pids[$slot]}
+        if [ "$inf_pid" != "0" ] && ! inference_process_alive "$inf_pid"; then
+            port=$(( start_port + slot ))
+            inf_log="${run_dir}/inference_logs/qwenpi_slot${slot}_gpu$((slot % num_gpus))_port${port}.log"
+            echo -e "\033[31mError: inference server for busy slot ${slot} exited; stopping ${slot_task[$slot]}.\033[0m"
+            echo -e "\033[31mLast 80 inference log lines (${inf_log}):\033[0m"
+            tail -n 80 "$inf_log" 2>/dev/null || true
+            signal_managed_process TERM "$pid"
+            wait "$pid" 2>/dev/null || true
+            exit 1
+        fi
 
         # Check whether the process has exited
         if ! kill -0 "$pid" 2>/dev/null; then
@@ -692,7 +779,7 @@ else
     for slot in $(seq 0 $((num_slots-1))); do
         inf_pid=${inference_pids[$slot]}
         if [ "$inf_pid" != "0" ] && kill -0 "$inf_pid" 2>/dev/null; then
-            kill "$inf_pid" 2>/dev/null
+            signal_managed_process TERM "$inf_pid"
             echo -e "\033[36m  slot $slot inference server (PID: ${inf_pid}) stopped\033[0m"
         fi
     done
