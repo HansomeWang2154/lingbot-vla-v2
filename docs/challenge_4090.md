@@ -412,6 +412,9 @@ git diff --check
 
 ## 8. 常见故障
 
+Checkpoint 基座对照、后台进度查看及 rollout 再训练边界见
+[Checkpoint 对照与 rollout 路线](checkpoint_comparison_and_rollouts.md)。
+
 - **预检看到多张 GPU**：检查容器 GPU 配额和 `CUDA_VISIBLE_DEVICES`；本流程按恰好一张可见 4090 设计。
 - **系统盘爆满**：确认已 `source .challenge.env`，并用 `python -c 'import os; print(os.environ["HF_HOME"])'` 核对路径。
 - **FlashAttention 导入失败**：wheel 的 Python、Torch、CUDA 和 CXX11 ABI 必须一致；不要绕过版本检查。

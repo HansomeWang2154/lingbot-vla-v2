@@ -6,6 +6,7 @@
 #
 # Usage: bash start_robotwin_infer_and_eval.sh [options]
 #   --model_path        inference model path (default: /path/to/your/checkpoint, or $MODEL_PATH)
+#   --training_config   optional explicit training YAML for controlled checkpoint comparisons
 #   --inference_script  inference-side module path (default: deploy/lingbot_vla_v2_policy.py)
 #   --inference_workdir inference-side working dir (default: current working dir)
 #   --eval_workdir      sim-side (RoboTwin repo) working dir (REQUIRED; or $EVAL_WORKDIR; default placeholder /path/to/RoboTwin)
@@ -42,6 +43,7 @@ project_root="$(pwd)"
 inference_workdir="${project_root}/"
 inference_script="deploy/lingbot_vla_v2_policy.py"
 model_path="${MODEL_PATH:-/path/to/your/checkpoint}"
+training_config=""
 eval_workdir="${EVAL_WORKDIR:-/path/to/RoboTwin}"
 output_base="${OUTPUT_BASE:-/path/to/VLABenchmarkResult}"
 # Conda env names + conda.sh path for both sides (overridable via flags or env).
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --inference_workdir) inference_workdir="$2"; shift 2 ;;
         --inference_script)  inference_script="$2";  shift 2 ;;
         --model_path)        model_path="$2";        shift 2 ;;
+        --training_config)   training_config="$2";   shift 2 ;;
         --eval_workdir)      eval_workdir="$2";      shift 2 ;;
         --output_base)       output_base="$2";       shift 2 ;;
         --start_port)        start_port="$2";        shift 2 ;;
@@ -95,6 +98,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: bash $0 [options]"
             echo "  --model_path        inference model path"
+            echo "  --training_config   explicit architecture/data YAML (optional)"
             echo "  --inference_script  inference-side module path"
             echo "  --inference_workdir inference-side working dir"
             echo "  --eval_workdir      sim-side (RoboTwin repo) working dir (REQUIRED; or \$EVAL_WORKDIR)"
@@ -123,6 +127,13 @@ while [[ $# -gt 0 ]]; do
             echo -e "\033[31mUnknown argument: $1\033[0m"; exit 1 ;;
     esac
 done
+
+if [ -n "$training_config" ] && [ ! -f "$training_config" ]; then
+    echo "Error: training_config does not exist: $training_config" >&2
+    exit 1
+fi
+# Pass an optional argument via an exported array-safe environment value.
+export LINGBOT_EVAL_TRAINING_CONFIG="$training_config"
 
 
 # ===== Common environment =====
@@ -319,7 +330,10 @@ for slot in $(seq 0 $((num_slots-1))); do
         inference_script_for_module="${inference_script_for_module#${inference_workdir%/}/}"
     fi
     inference_module=$(echo "${inference_script_for_module}" | sed 's|/|.|g; s|\.py$||')
-    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -u -m ${inference_module} \
+    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && extra_args=() && \
+        if [ -n \"\$LINGBOT_EVAL_TRAINING_CONFIG\" ]; then extra_args+=(--training_config \"\$LINGBOT_EVAL_TRAINING_CONFIG\"); fi && \
+        SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -u -m ${inference_module} \
+        \"\${extra_args[@]}\" \
         --model_path '${model_path}' \
         --use_length '${use_length}' \
         --use_bf16 "${use_bf16}" \
@@ -694,6 +708,7 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "  Model: ${_exp_name}_${_step_k}"
     echo "  Model path: ${model_path}"
+    echo "  Training config: ${training_config:-checkpoint-relative}"
     echo "  Tasks: ${num_tasks}"
     echo "  Task Config: ${task_config}"
     echo "  Inference: ${num_gpus} GPU x ${num_per_gpu}/GPU = ${num_slots} slots"

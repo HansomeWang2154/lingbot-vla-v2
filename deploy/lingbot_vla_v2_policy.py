@@ -197,6 +197,7 @@ class LingbotVLAv2Server:
         use_bf16=True,
         use_fp32=False,
         use_compile=False,
+        training_config=None,
     ) -> None:
         assert not (use_bf16 and use_fp32), 'Bfloat16 or Float32!!!'
         self.adaptive_ensemble_alpha = adaptive_ensemble_alpha
@@ -204,6 +205,7 @@ class LingbotVLAv2Server:
         self.use_length = use_length
         self.chunk_ret = chunk_ret
         self.robot_norm_path = robot_norm_path
+        self.training_config = training_config
 
         self.task_description = None
 
@@ -288,7 +290,9 @@ class LingbotVLAv2Server:
         print(f"loading model from: {path_to_pi_model}")
         
         # load training config
-        training_config_path = Path(path_to_pi_model).parent.parent.parent/'lingbotvla_cli.yaml'
+        training_config_path = (Path(self.training_config) if self.training_config else
+                                Path(path_to_pi_model).parent.parent.parent/'lingbotvla_cli.yaml')
+        print(f"loading training config from: {training_config_path}")
         with open(training_config_path, 'r') as f:
             training_config = yaml.safe_load(f)
         f.close()
@@ -560,6 +564,8 @@ except ImportError:
 
 def main():
     parser = argparse.ArgumentParser(description="Launch the Qwen3VL LingbotVlaV2 WebSocket policy server")
+    parser.add_argument("--training_config", default=None,
+                        help="Explicit inference architecture/data YAML; overrides checkpoint-relative lookup")
 
     parser.add_argument(
         "--model_path",
@@ -614,6 +620,7 @@ def main():
         use_bf16=args.use_bf16,
         use_fp32=args.use_fp32,
         use_compile=args.use_compile,
+        training_config=args.training_config,
     )
     model_server = WebsocketPolicyServer(model, port=args.port)
     model_server.serve_forever()
