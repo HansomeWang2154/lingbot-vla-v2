@@ -86,6 +86,27 @@ class LauncherSubsetTests(unittest.TestCase):
             result = self.run_subset(contents)
             self.assertNotEqual(result.returncode, 0)
 
+    def test_source_sync_and_backup_without_trailing_slash(self):
+        launcher = (PATH.parents[2] / "experiment/robotwin/start_robotwin_infer_and_eval.sh").read_text(encoding="utf-8")
+        normalization = next(line for line in launcher.splitlines() if line.startswith('inference_workdir="${inference_workdir%/}'))
+        section = 'eval_client_src=' + launcher.split('eval_client_src=', 1)[1].split('# ===== Ensure the deploy client helpers', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "src/experiment/robotwin"
+            source.mkdir(parents=True)
+            (source / "eval_policy_client_lingbotvla.py").write_text("new-client")
+            (source / "lingbot_rollout.py").write_text("helper")
+            destination = root / "sim/script"
+            destination.mkdir(parents=True)
+            (destination / "eval_policy_client_lingbotvla.py").write_text("old-client")
+            result = subprocess.run(["bash", "-c", 'inference_workdir=$1; eval_workdir=$2; ' + normalization + '\n' + section,
+                                     "sync-test", str(root / "src"), str(root / "sim")], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((destination / "eval_policy_client_lingbotvla.py").read_text(), "new-client")
+            backups = list(destination.glob("*.backup.*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(), "old-client")
+
 
 if __name__ == "__main__":
     unittest.main()

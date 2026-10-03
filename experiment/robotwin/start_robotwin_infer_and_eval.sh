@@ -142,6 +142,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Source paths below are joined by concatenation; flags may omit the final slash.
+inference_workdir="${inference_workdir%/}/"
+if [ ! -f "${inference_workdir}experiment/robotwin/eval_policy_client_lingbotvla.py" ] || \
+   [ ! -f "${inference_workdir}experiment/robotwin/lingbot_rollout.py" ]; then
+    echo "Error: inference_workdir must contain the current eval client and rollout helper" >&2
+    exit 1
+fi
+
 if [ -n "$training_config" ] && [ ! -f "$training_config" ]; then
     echo "Error: training_config does not exist: $training_config" >&2
     exit 1

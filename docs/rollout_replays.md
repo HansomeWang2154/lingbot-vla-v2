@@ -10,8 +10,10 @@
 各 2 episodes，共 6 组，seed block 20（初始 seed 2100000）。它们是观察/诊断用 rollout，
 不是无偏评测集；不加入训练清单，不启动微调。新增仿真数据用于比赛训练的许可仍待确认。
 
-运行目录：`/root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003`。
-总日志：`/root/shared-nvme/lingbot-assets/logs/rollout_preview_clean_20261003.log`。
+运行目录：`/root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003_v2`。
+总日志：`/root/shared-nvme/lingbot-assets/logs/rollout_preview_clean_20261003_v2.log`。
+首个不带 v2 的目录保留启动路径拼接失败日志，没有生成有效轨迹。已规范化输入目录，
+并将客户端/采集器存在性检查提前到模型加载前。
 所有资料保留在共享盘；GitHub 仅保存采集代码、测试和说明。
 
 ## 保存内容
@@ -38,14 +40,14 @@ MP4 为 10 fps 的观察回放，不宣称与仿真物理时间或动作频率�
 
 ```bash
 # 查看 rollout 总进度；Ctrl+C 只停止查看。
-tail -f /root/shared-nvme/lingbot-assets/logs/rollout_preview_clean_20261003.log
+tail -f /root/shared-nvme/lingbot-assets/logs/rollout_preview_clean_20261003_v2.log
 
 # 列出已生成的成功/失败 MP4 回放。
-find /root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003 \
+find /root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003_v2 \
   -type f -name '*.mp4'
 
 # 查看运行清单；完成后会列出有效 rollout 的位置和动作帧数。
-cat /root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003/comparison.json
+cat /root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003_v2/comparison.json
 
 # 用 Windows PowerShell 将回放下载到当前文件夹（以实际视频路径替换占位符）。
 # 输入密码时不会回显；不要把密码写在命令里。
