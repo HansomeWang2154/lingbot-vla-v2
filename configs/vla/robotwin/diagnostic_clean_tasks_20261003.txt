@@ -1,0 +1,12 @@
+# Selected after screening: diagnostic only, not an unbiased benchmark.
+# Three improved tasks, three regressed, two shared successes, two shared failures.
+beat_block_hammer
+place_mouse_pad
+pick_dual_bottles
+blocks_ranking_rgb
+place_empty_cup
+place_object_basket
+grab_roller
+open_laptop
+lift_pot
+stack_blocks_three

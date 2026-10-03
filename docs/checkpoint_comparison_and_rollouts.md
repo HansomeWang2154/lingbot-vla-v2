@@ -2,6 +2,28 @@
 
 ## 当前执行范围
 
+2026-10-03 核验：初筛全部完成，基座 38%、1k 30%、5k 40%、10k 42%。
+详见 [初筛对照报告](evaluation_checkpoint_comparison_20260930.md)。
+下一轮为基座与 10k 的固定 10-task × 10-episode 诊断；新的 seed block 1，
+实际 seed/指令进入 episode 审计。这不是训练 rollout，也不作为正式全任务成绩。
+
+```bash
+# 进入项目并加载云容器环境变量。
+cd /root/shared-nvme/lingbot-challenge
+source .challenge.env
+
+# 仅检查固定诊断计划；不启动测评、不写结果目录。
+/root/shared-nvme/lingbot-assets/conda/envs/lingbotvla-comp/bin/python \
+  scripts/challenge/compare_clean_checkpoints.py \
+  --training-run /root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1 \
+  --output /root/shared-nvme/lingbot-assets/outputs/checkpoint_diagnostic_clean_20261003 \
+  --tasks-file configs/vla/robotwin/diagnostic_clean_tasks_20261003.txt \
+  --steps 0 10000 --episodes 10 --seed 1 --dry-run
+
+# 查看这轮后台诊断进度；Ctrl+C 只停止查看。
+tail -f /root/shared-nvme/lingbot-assets/logs/checkpoint_diagnostic_clean_20261003.log
+```
+
 2026-09-30：顺序执行官方 50k 基座、LoRA 1k、5k、10k 的 clean 初筛，每个模型
 50 tasks × 1 episode。统一 RoboTwin 13c3c47、BF16、关闭 compile/video、chunk 50、
 simulator seed 0、policy RNG seed 42，并显式复用 clean 10k 训练配置和归一化统计。

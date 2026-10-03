@@ -18,6 +18,8 @@
 #   --inference_ready_timeout seconds to wait for inference ports (default: 900)
 #   --pid_name          PID file prefix (default: test_pid)
 #   --num_tasks         number of sim tasks, taken in order from the task list (default: 50, max: 50)
+#   --tasks_file        explicit task subset, one task per line (overrides --num_tasks)
+#   --seed              nonnegative scene seed block (default: 0; initial scene = 100000*(1+seed))
 #   --num_gpus          total GPUs (default: 1)
 #   --num_per_gpu       inference servers per GPU (default: 1)
 #   --episodes          episodes per task (default: 100; use 1 only for smoke)
@@ -54,6 +56,8 @@ start_port=9330
 inference_ready_timeout=900
 pid_name="test_pid"
 num_tasks=50
+tasks_file=""
+seed=0
 num_gpus=1
 num_per_gpu=1
 episodes=100
@@ -80,6 +84,8 @@ while [[ $# -gt 0 ]]; do
         --inference_ready_timeout) inference_ready_timeout="$2"; shift 2 ;;
         --pid_name)          pid_name="$2";          shift 2 ;;
         --num_tasks)         num_tasks="$2";         shift 2 ;;
+        --tasks_file)        tasks_file="$2";        shift 2 ;;
+        --seed)              seed="$2";              shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
         --num_per_gpu)       num_per_gpu="$2";       shift 2 ;;
         --episodes)          episodes="$2";          shift 2 ;;
@@ -110,6 +116,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --inference_ready_timeout seconds to wait for inference ports (default: 900)"
             echo "  --pid_name          PID file prefix (default: test_pid)"
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
+            echo "  --tasks_file        explicit unique task subset (one task per line)"
+            echo "  --seed              nonnegative scene seed block (default: 0)"
             echo "  --num_gpus          total GPUs (default: 1)"
             echo "  --num_per_gpu       inference servers per GPU (default: 1)"
             echo "  --episodes          episodes per task (default: 100; 1 is smoke-only)"
@@ -245,7 +253,7 @@ echo -e "\033[36mSim-side python (${sim_env}): ${sim_python} ($(${sim_python} --
 conda deactivate 2>/dev/null || true
 
 # ===== Task count validation =====
-if [ "$num_tasks" -gt 50 ]; then
+if ! [[ "$num_tasks" =~ ^[0-9]+$ ]] || [ "$num_tasks" -lt 1 ] || [ "$num_tasks" -gt 50 ]; then
     echo -e "\033[31mError: num_tasks ${num_tasks} exceeds max 50; use 1~50\033[0m"
     exit 1
 fi
@@ -261,7 +269,34 @@ fi
 # ===== Sim-side args =====
 policy_name=ACT
 train_config_name=0
-seed=0
+if ! [[ "$seed" =~ ^[0-9]+$ ]] || [ "$seed" -gt 10000 ]; then
+    echo "Error: seed must be an integer from 0 to 10000" >&2
+    exit 1
+fi
+
+# ===== Full task list (50) =====
+task_list_all=("lift_pot" "hanging_mug" "stack_bowls_three" "scan_object" "handover_block" "click_bell" "put_object_cabinet" "open_microwave" "stack_blocks_three" "place_shoe" "adjust_bottle" "beat_block_hammer" "blocks_ranking_rgb" "blocks_ranking_size" "click_alarmclock" "dump_bin_bigbin" "grab_roller" "handover_mic" "move_can_pot" "move_pillbottle_pad" "move_playingcard_away" "place_cans_plasticbox" "place_container_plate" "place_dual_shoes" "place_empty_cup" "place_fan" "place_mouse_pad" "place_object_basket" "place_object_scale" "place_object_stand" "place_phone_stand" "move_stapler_pad" "open_laptop" "pick_diverse_bottles" "pick_dual_bottles" "place_a2b_left" "place_a2b_right" "place_bread_basket" "place_bread_skillet" "place_burger_fries" "place_can_basket" "press_stapler" "rotate_qrcode" "shake_bottle_horizontally" "shake_bottle" "stack_blocks_two" "stack_bowls_two" "stamp_seal" "turn_switch" "put_bottles_dustbin")
+task_queue=()
+if [ -n "$tasks_file" ]; then
+    if [ ! -f "$tasks_file" ]; then echo "Error: tasks_file not found" >&2; exit 1; fi
+    while IFS= read -r task || [ -n "$task" ]; do
+        task="${task%$'\r'}"
+        [[ -z "$task" || "$task" = \#* ]] && continue
+        known=false
+        for allowed in "${task_list_all[@]}"; do
+            [ "$task" = "$allowed" ] && known=true
+        done
+        if ! $known; then echo "Error: unknown task '$task'" >&2; exit 1; fi
+        for queued in "${task_queue[@]}"; do
+            if [ "$task" = "$queued" ]; then echo "Error: duplicate task '$task'" >&2; exit 1; fi
+        done
+        task_queue+=("$task")
+    done < "$tasks_file"
+    num_tasks=${#task_queue[@]}
+    if [ "$num_tasks" -lt 1 ]; then echo "Error: empty tasks_file" >&2; exit 1; fi
+else
+    for ((i=0; i<num_tasks; i++)); do task_queue+=("${task_list_all[$i]}"); done
+fi
 
 # ===== Compute inference slot count =====
 # actual slots = min(num_tasks, num_gpus * num_per_gpu)
@@ -273,15 +308,8 @@ if [ "$num_tasks" -lt "$num_slots" ]; then
     num_slots=$num_tasks
 fi
 
-# ===== Full task list (50) =====
-task_list_all=("lift_pot" "hanging_mug" "stack_bowls_three" "scan_object" "handover_block" "click_bell" "put_object_cabinet" "open_microwave" "stack_blocks_three" "place_shoe" "adjust_bottle" "beat_block_hammer" "blocks_ranking_rgb" "blocks_ranking_size" "click_alarmclock" "dump_bin_bigbin" "grab_roller" "handover_mic" "move_can_pot" "move_pillbottle_pad" "move_playingcard_away" "place_cans_plasticbox" "place_container_plate" "place_dual_shoes" "place_empty_cup" "place_fan" "place_mouse_pad" "place_object_basket" "place_object_scale" "place_object_stand" "place_phone_stand" "move_stapler_pad" "open_laptop" "pick_diverse_bottles" "pick_dual_bottles" "place_a2b_left" "place_a2b_right" "place_bread_basket" "place_bread_skillet" "place_burger_fries" "place_can_basket" "press_stapler" "rotate_qrcode" "shake_bottle_horizontally" "shake_bottle" "stack_blocks_two" "stack_bowls_two" "stamp_seal" "turn_switch" "put_bottles_dustbin")
-
-# Build the sim task queue
-task_queue=()
-for i in $(seq 0 $((num_tasks-1))); do
-    task_queue+=("${task_list_all[$i]}")
-done
 echo -e "\033[36mTasks this run (${num_tasks}): ${task_queue[*]}\033[0m"
+echo "Scene seed block: ${seed} (initial scene seed: $((100000 * (1 + seed))))"
 echo -e "\033[36mInference config: ${num_gpus} GPU x ${num_per_gpu} servers/GPU = ${num_slots} slots\033[0m"
 echo -e "\033[36mInference precision: use_bf16=${use_bf16}, use_fp32=${use_fp32}, use_compile=${use_compile}\033[0m"
 
@@ -710,6 +738,8 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     echo "  Model path: ${model_path}"
     echo "  Training config: ${training_config:-checkpoint-relative}"
     echo "  Tasks: ${num_tasks}"
+    echo "  Seed block: ${seed}"
+    echo "  Task list: ${task_queue[*]}"
     echo "  Task Config: ${task_config}"
     echo "  Inference: ${num_gpus} GPU x ${num_per_gpu}/GPU = ${num_slots} slots"
     echo "  Precision: use_bf16=${use_bf16}, use_fp32=${use_fp32}, use_compile=${use_compile}"

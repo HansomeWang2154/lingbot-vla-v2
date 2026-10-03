@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+import json
 
 sys.path.append("./")
 sys.path.append(f"./policy")
@@ -186,6 +187,7 @@ def main(usr_args):
                                    video_size=video_size,
                                    video_fps=video_fps,
                                    instruction_type=instruction_type,
+                                   result_trace_path=save_dir / "episodes.jsonl",
                                    usr_args=usr_args)
     suc_nums.append(suc_num)
 
@@ -211,6 +213,7 @@ def eval_policy(task_name,
                 video_size=None,
                 video_fps="10",
                 instruction_type=None,
+                result_trace_path=None,
                 usr_args = None):
     print(f"\033[34mTask Name: {args['task_name']}\033[0m")
     print(f"\033[34mPolicy Name: {args['policy_name']}\033[0m")
@@ -368,6 +371,13 @@ def eval_policy(task_name,
             TASK_ENV._del_eval_video_ffmpeg()
 
         result_tag = "success" if succ else "failure"
+        if result_trace_path is not None:
+            # Evaluation audit only: this is not a state/action training rollout.
+            record = {"task": task_name, "episode": int(TASK_ENV.test_num),
+                      "seed": int(now_seed), "instruction": str(instruction),
+                      "success": bool(succ), "task_config": args["task_config"]}
+            with open(result_trace_path, "a", encoding="utf-8") as trace:
+                trace.write(json.dumps(record, ensure_ascii=False) + "\n")
         
         old_name = f"{TASK_ENV.eval_video_path}/episode{TASK_ENV.test_num}.mp4"
         new_name = f"{TASK_ENV.eval_video_path}/episode{TASK_ENV.test_num}_{result_tag}.mp4"

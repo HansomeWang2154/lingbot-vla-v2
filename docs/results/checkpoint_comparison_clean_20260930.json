@@ -1,0 +1,1089 @@
+{
+  "status": "complete",
+  "sim_revision": "13c3c47ff4312dd62484bcd51be034af55c062d1",
+  "training_config": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/lingbotvla_cli.yaml",
+  "training_config_sha256": "d0c98e3bbfe6e04a11a4691f6bf06741c72045c86fa937441c54a5e23b6a5d23",
+  "task_config": "demo_clean",
+  "train_list_sha256": "f30c71df15d3bb3b65c61b4ce694be6e8df354fcd00532c93ab8cbdff64c6ca4",
+  "norm_stats_sha256": "045bb732ac5b5584031d23c5e2f641c9f51b1b2b28d7e38f641f7cee1957f9bf",
+  "tasks": 50,
+  "episodes": 1,
+  "sim_seed": 0,
+  "policy_seed": 42,
+  "precision": "BF16",
+  "compile": false,
+  "use_length": 50,
+  "purpose": "Weight-only screening under shared clean normalization; not official release reproduction",
+  "stages": [
+    {
+      "name": "base_50k",
+      "model": "/root/shared-nvme/lingbot-assets/models/lingbot-vla-v2-6b-robotwin/checkpoints/global_step_50000/hf_ckpt",
+      "status": "complete",
+      "result": {
+        "success": 19,
+        "total": 50,
+        "rate": 0.38,
+        "sim_seconds": 5540,
+        "tasks": {
+          "lift_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 145
+          },
+          "hanging_mug": {
+            "success": 0,
+            "total": 1,
+            "seconds": 156
+          },
+          "stack_bowls_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 181
+          },
+          "scan_object": {
+            "success": 0,
+            "total": 1,
+            "seconds": 145
+          },
+          "handover_block": {
+            "success": 0,
+            "total": 1,
+            "seconds": 136
+          },
+          "click_bell": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "put_object_cabinet": {
+            "success": 0,
+            "total": 1,
+            "seconds": 236
+          },
+          "open_microwave": {
+            "success": 0,
+            "total": 1,
+            "seconds": 186
+          },
+          "stack_blocks_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "place_shoe": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "adjust_bottle": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "beat_block_hammer": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "blocks_ranking_rgb": {
+            "success": 1,
+            "total": 1,
+            "seconds": 101
+          },
+          "blocks_ranking_size": {
+            "success": 0,
+            "total": 1,
+            "seconds": 166
+          },
+          "click_alarmclock": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "dump_bin_bigbin": {
+            "success": 1,
+            "total": 1,
+            "seconds": 90
+          },
+          "grab_roller": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "handover_mic": {
+            "success": 1,
+            "total": 1,
+            "seconds": 100
+          },
+          "move_can_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 106
+          },
+          "move_pillbottle_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 110
+          },
+          "move_playingcard_away": {
+            "success": 1,
+            "total": 1,
+            "seconds": 66
+          },
+          "place_cans_plasticbox": {
+            "success": 0,
+            "total": 1,
+            "seconds": 160
+          },
+          "place_container_plate": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "place_dual_shoes": {
+            "success": 0,
+            "total": 1,
+            "seconds": 120
+          },
+          "place_empty_cup": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_fan": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "place_mouse_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "place_object_basket": {
+            "success": 1,
+            "total": 1,
+            "seconds": 111
+          },
+          "place_object_scale": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "place_object_stand": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "place_phone_stand": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "move_stapler_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "open_laptop": {
+            "success": 1,
+            "total": 1,
+            "seconds": 66
+          },
+          "pick_diverse_bottles": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "pick_dual_bottles": {
+            "success": 0,
+            "total": 1,
+            "seconds": 106
+          },
+          "place_a2b_left": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_a2b_right": {
+            "success": 1,
+            "total": 1,
+            "seconds": 81
+          },
+          "place_bread_basket": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_bread_skillet": {
+            "success": 1,
+            "total": 1,
+            "seconds": 85
+          },
+          "place_burger_fries": {
+            "success": 1,
+            "total": 1,
+            "seconds": 86
+          },
+          "place_can_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 165
+          },
+          "press_stapler": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "rotate_qrcode": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "shake_bottle_horizontally": {
+            "success": 1,
+            "total": 1,
+            "seconds": 86
+          },
+          "shake_bottle": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "stack_blocks_two": {
+            "success": 0,
+            "total": 1,
+            "seconds": 120
+          },
+          "stack_bowls_two": {
+            "success": 1,
+            "total": 1,
+            "seconds": 96
+          },
+          "stamp_seal": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "turn_switch": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "put_bottles_dustbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 216
+          }
+        }
+      },
+      "stats_file": "/root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_20260930/base_50k/lingbot-vla-v2-6b-robotwin_50k_demo_clean_20260930_160240/stats.txt"
+    },
+    {
+      "name": "lora_1000",
+      "model": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_1000/merged_hf_ckpt",
+      "adapter": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_1000/lora_adapter",
+      "adapter_sha256": "088c3dc26c1233fcb4c320c1b13b602cadff37d68a816f227b4296f9139b09c1",
+      "status": "complete",
+      "result": {
+        "success": 15,
+        "total": 50,
+        "rate": 0.3,
+        "sim_seconds": 5555,
+        "tasks": {
+          "lift_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 141
+          },
+          "hanging_mug": {
+            "success": 0,
+            "total": 1,
+            "seconds": 145
+          },
+          "stack_bowls_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 156
+          },
+          "scan_object": {
+            "success": 0,
+            "total": 1,
+            "seconds": 136
+          },
+          "handover_block": {
+            "success": 0,
+            "total": 1,
+            "seconds": 135
+          },
+          "click_bell": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "put_object_cabinet": {
+            "success": 0,
+            "total": 1,
+            "seconds": 165
+          },
+          "open_microwave": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "stack_blocks_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 156
+          },
+          "place_shoe": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "adjust_bottle": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "beat_block_hammer": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "blocks_ranking_rgb": {
+            "success": 0,
+            "total": 1,
+            "seconds": 161
+          },
+          "blocks_ranking_size": {
+            "success": 0,
+            "total": 1,
+            "seconds": 155
+          },
+          "click_alarmclock": {
+            "success": 0,
+            "total": 1,
+            "seconds": 91
+          },
+          "dump_bin_bigbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 115
+          },
+          "grab_roller": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "handover_mic": {
+            "success": 0,
+            "total": 1,
+            "seconds": 125
+          },
+          "move_can_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 101
+          },
+          "move_pillbottle_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "move_playingcard_away": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_cans_plasticbox": {
+            "success": 0,
+            "total": 1,
+            "seconds": 156
+          },
+          "place_container_plate": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_dual_shoes": {
+            "success": 1,
+            "total": 1,
+            "seconds": 111
+          },
+          "place_empty_cup": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "place_fan": {
+            "success": 0,
+            "total": 1,
+            "seconds": 91
+          },
+          "place_mouse_pad": {
+            "success": 1,
+            "total": 1,
+            "seconds": 65
+          },
+          "place_object_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 181
+          },
+          "place_object_scale": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_object_stand": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "place_phone_stand": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "move_stapler_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 101
+          },
+          "open_laptop": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "pick_diverse_bottles": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "pick_dual_bottles": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "place_a2b_left": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_a2b_right": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_bread_basket": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "place_bread_skillet": {
+            "success": 1,
+            "total": 1,
+            "seconds": 90
+          },
+          "place_burger_fries": {
+            "success": 0,
+            "total": 1,
+            "seconds": 110
+          },
+          "place_can_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 161
+          },
+          "press_stapler": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "rotate_qrcode": {
+            "success": 0,
+            "total": 1,
+            "seconds": 91
+          },
+          "shake_bottle_horizontally": {
+            "success": 0,
+            "total": 1,
+            "seconds": 115
+          },
+          "shake_bottle": {
+            "success": 1,
+            "total": 1,
+            "seconds": 76
+          },
+          "stack_blocks_two": {
+            "success": 0,
+            "total": 1,
+            "seconds": 120
+          },
+          "stack_bowls_two": {
+            "success": 1,
+            "total": 1,
+            "seconds": 86
+          },
+          "stamp_seal": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "turn_switch": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "put_bottles_dustbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 226
+          }
+        }
+      },
+      "stats_file": "/root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_20260930/lora_1000/robotwin_4090_lora_clean_c3447b1_1k_demo_clean_20260930_174039/stats.txt"
+    },
+    {
+      "name": "lora_5000",
+      "model": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_5000/merged_hf_ckpt",
+      "adapter": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_5000/lora_adapter",
+      "adapter_sha256": "557be885425acb2227f66494e62eef518bcb56801b6e58f1b5a485336dc6c7ee",
+      "status": "complete",
+      "result": {
+        "success": 20,
+        "total": 50,
+        "rate": 0.4,
+        "sim_seconds": 5396,
+        "tasks": {
+          "lift_pot": {
+            "success": 1,
+            "total": 1,
+            "seconds": 80
+          },
+          "hanging_mug": {
+            "success": 0,
+            "total": 1,
+            "seconds": 146
+          },
+          "stack_bowls_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 175
+          },
+          "scan_object": {
+            "success": 0,
+            "total": 1,
+            "seconds": 115
+          },
+          "handover_block": {
+            "success": 0,
+            "total": 1,
+            "seconds": 131
+          },
+          "click_bell": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "put_object_cabinet": {
+            "success": 0,
+            "total": 1,
+            "seconds": 161
+          },
+          "open_microwave": {
+            "success": 1,
+            "total": 1,
+            "seconds": 90
+          },
+          "stack_blocks_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "place_shoe": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "adjust_bottle": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "beat_block_hammer": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "blocks_ranking_rgb": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "blocks_ranking_size": {
+            "success": 0,
+            "total": 1,
+            "seconds": 161
+          },
+          "click_alarmclock": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "dump_bin_bigbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 121
+          },
+          "grab_roller": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "handover_mic": {
+            "success": 1,
+            "total": 1,
+            "seconds": 91
+          },
+          "move_can_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 115
+          },
+          "move_pillbottle_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 121
+          },
+          "move_playingcard_away": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_cans_plasticbox": {
+            "success": 0,
+            "total": 1,
+            "seconds": 146
+          },
+          "place_container_plate": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_dual_shoes": {
+            "success": 0,
+            "total": 1,
+            "seconds": 126
+          },
+          "place_empty_cup": {
+            "success": 1,
+            "total": 1,
+            "seconds": 80
+          },
+          "place_fan": {
+            "success": 0,
+            "total": 1,
+            "seconds": 116
+          },
+          "place_mouse_pad": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_object_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 156
+          },
+          "place_object_scale": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_object_stand": {
+            "success": 0,
+            "total": 1,
+            "seconds": 91
+          },
+          "place_phone_stand": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "move_stapler_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 106
+          },
+          "open_laptop": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "pick_diverse_bottles": {
+            "success": 1,
+            "total": 1,
+            "seconds": 76
+          },
+          "pick_dual_bottles": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "place_a2b_left": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "place_a2b_right": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_bread_basket": {
+            "success": 1,
+            "total": 1,
+            "seconds": 76
+          },
+          "place_bread_skillet": {
+            "success": 0,
+            "total": 1,
+            "seconds": 125
+          },
+          "place_burger_fries": {
+            "success": 0,
+            "total": 1,
+            "seconds": 116
+          },
+          "place_can_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 151
+          },
+          "press_stapler": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "rotate_qrcode": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "shake_bottle_horizontally": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "shake_bottle": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "stack_blocks_two": {
+            "success": 0,
+            "total": 1,
+            "seconds": 125
+          },
+          "stack_bowls_two": {
+            "success": 1,
+            "total": 1,
+            "seconds": 96
+          },
+          "stamp_seal": {
+            "success": 0,
+            "total": 1,
+            "seconds": 91
+          },
+          "turn_switch": {
+            "success": 1,
+            "total": 1,
+            "seconds": 65
+          },
+          "put_bottles_dustbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 221
+          }
+        }
+      },
+      "stats_file": "/root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_20260930/lora_5000/robotwin_4090_lora_clean_c3447b1_5k_demo_clean_20260930_191916/stats.txt"
+    },
+    {
+      "name": "lora_10000",
+      "model": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_10000/merged_hf_ckpt",
+      "adapter": "/root/shared-nvme/lingbot-assets/outputs/robotwin_4090_lora_clean_c3447b1/checkpoints/global_step_10000/lora_adapter",
+      "adapter_sha256": "da32e9cb5eb591ccf6056dd034aa9a4b8f6c4c3c58a3d269f372000a54ae5009",
+      "status": "complete",
+      "result": {
+        "success": 21,
+        "total": 50,
+        "rate": 0.42,
+        "sim_seconds": 5441,
+        "tasks": {
+          "lift_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 110
+          },
+          "hanging_mug": {
+            "success": 0,
+            "total": 1,
+            "seconds": 151
+          },
+          "stack_bowls_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 170
+          },
+          "scan_object": {
+            "success": 0,
+            "total": 1,
+            "seconds": 136
+          },
+          "handover_block": {
+            "success": 0,
+            "total": 1,
+            "seconds": 131
+          },
+          "click_bell": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "put_object_cabinet": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "open_microwave": {
+            "success": 0,
+            "total": 1,
+            "seconds": 191
+          },
+          "stack_blocks_three": {
+            "success": 0,
+            "total": 1,
+            "seconds": 171
+          },
+          "place_shoe": {
+            "success": 0,
+            "total": 1,
+            "seconds": 100
+          },
+          "adjust_bottle": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "beat_block_hammer": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "blocks_ranking_rgb": {
+            "success": 0,
+            "total": 1,
+            "seconds": 166
+          },
+          "blocks_ranking_size": {
+            "success": 0,
+            "total": 1,
+            "seconds": 160
+          },
+          "click_alarmclock": {
+            "success": 0,
+            "total": 1,
+            "seconds": 106
+          },
+          "dump_bin_bigbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 110
+          },
+          "grab_roller": {
+            "success": 1,
+            "total": 1,
+            "seconds": 81
+          },
+          "handover_mic": {
+            "success": 1,
+            "total": 1,
+            "seconds": 85
+          },
+          "move_can_pot": {
+            "success": 0,
+            "total": 1,
+            "seconds": 106
+          },
+          "move_pillbottle_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 105
+          },
+          "move_playingcard_away": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_cans_plasticbox": {
+            "success": 0,
+            "total": 1,
+            "seconds": 141
+          },
+          "place_container_plate": {
+            "success": 1,
+            "total": 1,
+            "seconds": 80
+          },
+          "place_dual_shoes": {
+            "success": 0,
+            "total": 1,
+            "seconds": 131
+          },
+          "place_empty_cup": {
+            "success": 0,
+            "total": 1,
+            "seconds": 111
+          },
+          "place_fan": {
+            "success": 1,
+            "total": 1,
+            "seconds": 90
+          },
+          "place_mouse_pad": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "place_object_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 150
+          },
+          "place_object_scale": {
+            "success": 1,
+            "total": 1,
+            "seconds": 71
+          },
+          "place_object_stand": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "place_phone_stand": {
+            "success": 1,
+            "total": 1,
+            "seconds": 80
+          },
+          "move_stapler_pad": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "open_laptop": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "pick_diverse_bottles": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "pick_dual_bottles": {
+            "success": 1,
+            "total": 1,
+            "seconds": 76
+          },
+          "place_a2b_left": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "place_a2b_right": {
+            "success": 1,
+            "total": 1,
+            "seconds": 70
+          },
+          "place_bread_basket": {
+            "success": 1,
+            "total": 1,
+            "seconds": 81
+          },
+          "place_bread_skillet": {
+            "success": 1,
+            "total": 1,
+            "seconds": 80
+          },
+          "place_burger_fries": {
+            "success": 1,
+            "total": 1,
+            "seconds": 96
+          },
+          "place_can_basket": {
+            "success": 0,
+            "total": 1,
+            "seconds": 155
+          },
+          "press_stapler": {
+            "success": 0,
+            "total": 1,
+            "seconds": 96
+          },
+          "rotate_qrcode": {
+            "success": 0,
+            "total": 1,
+            "seconds": 90
+          },
+          "shake_bottle_horizontally": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "shake_bottle": {
+            "success": 1,
+            "total": 1,
+            "seconds": 75
+          },
+          "stack_blocks_two": {
+            "success": 0,
+            "total": 1,
+            "seconds": 120
+          },
+          "stack_bowls_two": {
+            "success": 1,
+            "total": 1,
+            "seconds": 96
+          },
+          "stamp_seal": {
+            "success": 0,
+            "total": 1,
+            "seconds": 95
+          },
+          "turn_switch": {
+            "success": 1,
+            "total": 1,
+            "seconds": 66
+          },
+          "put_bottles_dustbin": {
+            "success": 0,
+            "total": 1,
+            "seconds": 226
+          }
+        }
+      },
+      "stats_file": "/root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_20260930/lora_10000/robotwin_4090_lora_clean_c3447b1_10k_demo_clean_20260930_205200/stats.txt"
+    }
+  ],
+  "code_sha256": {
+    "scripts/challenge/compare_clean_checkpoints.py": "362ca9befafa1c84938645e34d8c575e80ac1f5cce7e046c964adae9419c59b8",
+    "experiment/robotwin/start_robotwin_infer_and_eval.sh": "ed64a6971f2dd3c47e15b122bcf9d505b880863cfcb56729ea4bb16d0e1cbbb9",
+    "experiment/robotwin/eval_policy_client_lingbotvla.py": "a9f89027a79745d2bdcf8b091cfa444aa5e32cb80011d8c2b257ca29b85fe93a",
+    "deploy/lingbot_vla_v2_policy.py": "3f6283362d640878c26418f7df9050735ce3a438fdd232a106c45d1b554e0fd9"
+  },
+  "started_unix": 1790755358.7284212,
+  "finished_unix": 1790778338.2418098
+}
