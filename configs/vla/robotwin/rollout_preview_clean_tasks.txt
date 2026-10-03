@@ -1,0 +1,4 @@
+# Collection for diagnosis only; not approved as competition training data.
+grab_roller
+place_empty_cup
+lift_pot

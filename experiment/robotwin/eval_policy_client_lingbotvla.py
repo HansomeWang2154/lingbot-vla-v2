@@ -188,6 +188,7 @@ def main(usr_args):
                                    video_fps=video_fps,
                                    instruction_type=instruction_type,
                                    result_trace_path=save_dir / "episodes.jsonl",
+                                   rollout_root=save_dir / "rollouts" if usr_args.get("save_rollouts", False) else None,
                                    usr_args=usr_args)
     suc_nums.append(suc_num)
 
@@ -214,6 +215,7 @@ def eval_policy(task_name,
                 video_fps="10",
                 instruction_type=None,
                 result_trace_path=None,
+                rollout_root=None,
                 usr_args = None):
     print(f"\033[34mTask Name: {args['task_name']}\033[0m")
     print(f"\033[34mPolicy Name: {args['policy_name']}\033[0m")
@@ -314,6 +316,17 @@ def eval_policy(task_name,
         if usr_args is not None and "new_ckpt_path" in usr_args:
             path_to_pi_model = usr_args['new_ckpt_path']
         ret = model.infer(dict(reset = True, robo_name=usr_args['robo_name'], path_to_pi_model=path_to_pi_model))
+        recorder = None
+        if rollout_root is not None:
+            from script.lingbot_rollout import RolloutRecorder
+            recorder = RolloutRecorder(rollout_root / f"episode_{TASK_ENV.test_num:03d}_seed_{now_seed}",
+                                       {"task": task_name, "seed": int(now_seed), "instruction": str(instruction),
+                                        "task_config": args["task_config"], "episode": int(TASK_ENV.test_num),
+                                        "robot": usr_args["robo_name"], "action_semantics": "raw_qpos_target",
+                                        "policy_checkpoint": usr_args.get("collection_model_path"),
+                                        "sim_revision": usr_args.get("collection_sim_revision"),
+                                        "chunk_length": usr_args.get("collection_use_length")})
+        chunk_index = 0
         
         while TASK_ENV.take_action_cnt<TASK_ENV.step_lim and not succ:
             observation = TASK_ENV.get_obs()
@@ -347,22 +360,25 @@ def eval_policy(task_name,
             ret = model.infer(formatted_observation) #(TASK_ENV, model, observation)
             action, latency = ret['action'], ret['server_timing']
             if len(action.shape) == 2:
-                initial_obs = False
-                for act in action:
-                    if initial_obs: # ensure the video is correct, but slow down simulation
-                        # observation = TASK_ENV.get_obs()
-                        pass
-                    else:
-                        initial_obs = True
+                for offset, act in enumerate(action):
+                    if TASK_ENV.take_action_cnt >= TASK_ENV.step_lim:
+                        break  # do not record ignored actions beyond the environment limit
+                    if offset and (recorder is not None or TASK_ENV.eval_video_path is not None):
+                        observation = TASK_ENV.get_obs()
+                    if recorder is not None:
+                        recorder.record(observation, act, chunk_index, offset, TASK_ENV.take_action_cnt)
                     TASK_ENV.take_action(act)
                     if TASK_ENV.eval_success:
                         succ = True
                         break
             else:
+                if recorder is not None:
+                    recorder.record(observation, action, chunk_index, 0, TASK_ENV.take_action_cnt)
                 TASK_ENV.take_action(action)
                 if TASK_ENV.eval_success:
                     succ = True
             
+            chunk_index += 1
             print(f"infer time {latency}")
 
 
@@ -371,6 +387,9 @@ def eval_policy(task_name,
             TASK_ENV._del_eval_video_ffmpeg()
 
         result_tag = "success" if succ else "failure"
+        if recorder is not None:
+            recorder.finish(TASK_ENV.get_obs(), succ, TASK_ENV.take_action_cnt, TASK_ENV.step_lim)
+            print(f"Raw rollout saved: {recorder.root} ({recorder.steps} actions)")
         if result_trace_path is not None:
             # Evaluation audit only: this is not a state/action training rollout.
             record = {"task": task_name, "episode": int(TASK_ENV.test_num),

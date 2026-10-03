@@ -69,7 +69,8 @@ cat /root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_2026093
 当前项目继续遵守：追加训练仅使用获准 clean 数据；不使用 randomized、隐藏评测数据，
 不提交比赛结果。自行生成的 clean rollout 是否属于比赛许可的训练数据，仍须以
 主办方完整规则或明确答复确认；“能在仿真器采集”不代表“比赛允许训练”。
-因此本阶段尚未采集或训练 rollout，也未改动已有训练清单。
+现已按用户授权开展独立的观察/诊断 rollout 采集，详见 [采集与回放](rollout_replays.md)；
+尚未开展 rollout 训练，也未改动已有训练清单。
 
 官方仓库的 post-training 示例同时列出 clean 和 randomized。我们的 **追加 LoRA 训练**
 仅用 clean，并不能证明官方基座的所有训练来源均为 clean。官方基座能否作为预训练
@@ -99,7 +100,9 @@ cat /root/shared-nvme/lingbot-assets/outputs/checkpoint_comparison_clean_2026093
   已有 LingBot-VLA 4B 的第三方 RL 实现不等同于 LingBot-VLA 2.0 6B 的即插即用支持；
   单张 24 GB 4090 上也应先验证 actor/rollout/训练共存的资源需求。
 
-## rollout 采集接口要求（待实现）
+## rollout 采集接口要求
+
+raw NPZ 与头部相机 MP4 的小样本采集已实现；下述训练数据转换及许可审计尚未完成。
 
 每条 transition 至少保存：
 

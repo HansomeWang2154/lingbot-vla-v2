@@ -27,6 +27,8 @@
 #   --robo_name         robot config name (default: robotwin)
 #   --video_fps         video recording fps (default: 10)
 #   --no_video          disable video recording to speed up simulation
+#   --video             save head-camera MP4 replays
+#   --save_rollouts     save raw per-action observations/actions (collection only)
 #   --use_bf16          use bfloat16 inference (default: False)
 #   --use_fp32          use float32 inference (default: True; release reproduction setting)
 #   --use_compile       enable model compile in policy inference (default: True)
@@ -67,9 +69,9 @@ use_fp32=True
 use_compile=True
 robo_name="robotwin"
 video_fps=10
-enable_video=True
 keep_inference=false
 enable_video=False
+save_rollouts=False
 task_config="${TASK_CONFIG:-demo_clean}"
 
 while [[ $# -gt 0 ]]; do
@@ -97,6 +99,8 @@ while [[ $# -gt 0 ]]; do
         --task_config)       task_config="$2";       shift 2 ;;
         --video_fps)         video_fps="$2";         shift 2 ;;
         --no_video)          enable_video=False;     shift ;;
+        --video)             enable_video=True;      shift ;;
+        --save_rollouts)     save_rollouts=True;     shift ;;
         --keep_inference)    keep_inference=true;    shift ;;
         --inference_env)     inference_env="$2";     shift 2 ;;
         --sim_env)           sim_env="$2";           shift 2 ;;
@@ -130,6 +134,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --keep_inference    keep inference servers resident after simulation"
             echo "  --video_fps         video recording fps (default: 10)"
             echo "  --no_video          disable video recording to speed up simulation"
+            echo "  --video             enable MP4 replays"
+            echo "  --save_rollouts     raw trajectory collection only (no training)"
             exit 0 ;;
         *)
             echo -e "\033[31mUnknown argument: $1\033[0m"; exit 1 ;;
@@ -448,13 +454,33 @@ cd "$eval_workdir" || { echo -e "\033[31mError: sim workdir ${eval_workdir} miss
 # must live at <RoboTwin>/script/ for _camera_config.yml to be found.
 eval_client_src="${inference_workdir}experiment/robotwin/eval_policy_client_lingbotvla.py"
 eval_client_dst="${eval_workdir}/script/eval_policy_client_lingbotvla.py"
-if [ ! -f "$eval_client_dst" ]; then
+if [ ! -f "$eval_client_src" ]; then
+    echo "Error: eval client source not found: $eval_client_src" >&2
+    exit 1
+fi
+if ! cmp -s "$eval_client_src" "$eval_client_dst"; then
+    if [ -f "$eval_client_dst" ]; then
+        backup=$(mktemp "${eval_client_dst}.backup.XXXXXX")
+        cp -p "$eval_client_dst" "$backup"
+        echo "Preserved previous eval client: $backup"
+    fi
     if [ ! -f "$eval_client_src" ]; then
         echo -e "\033[31mError: eval client source not found: ${eval_client_src}\033[0m"
         exit 1
     fi
     echo -e "\033[36mCopying eval client -> ${eval_client_dst}\033[0m"
     cp "$eval_client_src" "$eval_client_dst"
+fi
+echo "Eval client SHA256: $(sha256sum "$eval_client_dst" | cut -d' ' -f1)"
+rollout_helper_src="${inference_workdir}experiment/robotwin/lingbot_rollout.py"
+rollout_helper_dst="${eval_workdir}/script/lingbot_rollout.py"
+if [ ! -f "$rollout_helper_src" ]; then echo "Error: rollout helper missing" >&2; exit 1; fi
+if ! cmp -s "$rollout_helper_src" "$rollout_helper_dst"; then
+    if [ -f "$rollout_helper_dst" ]; then
+        backup=$(mktemp "${rollout_helper_dst}.backup.XXXXXX")
+        cp -p "$rollout_helper_dst" "$backup"
+    fi
+    cp "$rollout_helper_src" "$rollout_helper_dst"
 fi
 
 # ===== Ensure the deploy client helpers are present under RoboTwin/script/deploy =====
@@ -571,6 +597,10 @@ launch_task() {
         --video_fps ${video_fps} \
         --test_num ${episodes} \
         --eval_video_log ${enable_video} \
+        --save_rollouts ${save_rollouts} \
+        --collection_model_path '${model_path}' \
+        --collection_sim_revision '${actual_robotwin_revision}' \
+        --collection_use_length ${use_length} \
         --output_dir '${run_dir}/eval_results'" >> "$log_file" 2>&1 &
 
     local pid=$!
@@ -739,6 +769,7 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     echo "  Training config: ${training_config:-checkpoint-relative}"
     echo "  Tasks: ${num_tasks}"
     echo "  Seed block: ${seed}"
+    echo "  Video: ${enable_video}; raw rollouts: ${save_rollouts}"
     echo "  Task list: ${task_queue[*]}"
     echo "  Task Config: ${task_config}"
     echo "  Inference: ${num_gpus} GPU x ${num_per_gpu}/GPU = ${num_slots} slots"

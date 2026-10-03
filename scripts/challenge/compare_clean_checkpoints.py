@@ -109,6 +109,8 @@ def main():
     parser.add_argument("--seed", type=int, choices=range(0, 10001), default=0)
     parser.add_argument("--steps", type=int, nargs="+", default=[0, 1000, 5000, 10000],
                         help="Checkpoint steps; 0 denotes the original base")
+    parser.add_argument("--video", action="store_true", help="Save MP4 replays (slower)")
+    parser.add_argument("--save-rollouts", action="store_true", help="Collect raw observations/actions; never train")
     parser.add_argument("--dry-run", action="store_true", help="Validate/print plan without running or writing")
     args = parser.parse_args()
     tasks = read_tasks(args.tasks_file)
@@ -156,12 +158,14 @@ def main():
                 "tasks": len(tasks), "task_list": tasks, "episodes": args.episodes,
                 "sim_seed": args.seed, "policy_seed": 42,
                 "precision": "BF16", "compile": False, "use_length": 50,
+                "save_video": args.video, "save_rollouts": args.save_rollouts,
                 "purpose": "Weight-only screening under shared clean normalization; not official release reproduction",
                 "stages": stages,
                 "code_sha256": {p: file_hash(ROOT / p) for p in (
                     "scripts/challenge/compare_clean_checkpoints.py",
                     "experiment/robotwin/start_robotwin_infer_and_eval.sh",
                     "experiment/robotwin/eval_policy_client_lingbotvla.py",
+                    "experiment/robotwin/lingbot_rollout.py",
                     "deploy/lingbot_vla_v2_policy.py")}}
     if args.dry_run:
         print(json.dumps(manifest, indent=2), flush=True)
@@ -210,7 +214,8 @@ def main():
                      "--num_tasks", str(len(tasks)), "--episodes", str(args.episodes), "--seed", str(args.seed),
                      "--num_gpus", "1", "--num_per_gpu", "1", "--use_bf16", "True",
                      "--use_fp32", "False", "--use_compile", "False", "--use_length", "50",
-                     "--task_config", "demo_clean", "--no_video"])
+                     "--task_config", "demo_clean", "--video" if args.video else "--no_video"] +
+                    (["--save_rollouts"] if args.save_rollouts else []))
             stats = list(stage_output.glob("*/stats.txt"))
             if len(stats) != 1:
                 raise ValueError("Expected exactly one stats file")
@@ -221,6 +226,34 @@ def main():
             if any(sum(int(row["success"]) for row in audit[t]) != stage["result"]["tasks"][t]["success"] for t in tasks):
                 raise ValueError("Episode audit success counts disagree with stats")
             stage["episode_audit"] = audit
+            if args.save_rollouts:
+                from importlib.util import spec_from_file_location, module_from_spec
+                spec = spec_from_file_location("rollout_validation", ROOT / "experiment/robotwin/lingbot_rollout.py")
+                module = module_from_spec(spec)
+                spec.loader.exec_module(module)
+                stage["rollouts"] = []
+                for task in tasks:
+                    for row in audit[task]:
+                        episode_path = stats[0].parent / "eval_results" / task / "rollouts" / f"episode_{row['episode']:03d}_seed_{row['seed']}"
+                        episode = module.validate_episode(episode_path)
+                        if episode["success"] != row["success"]:
+                            raise ValueError("Raw rollout/audit success mismatch")
+                        stage["rollouts"].append({"path": str(episode_path), "frames": episode["frames"], "success": episode["success"]})
+            if args.video:
+                stage["videos"] = []
+                for task in tasks:
+                    for row in audit[task]:
+                        video = stats[0].parent / "eval_results" / task / f"episode{row['episode']}_{'success' if row['success'] else 'failure'}.mp4"
+                        if not video.is_file() or video.stat().st_size == 0:
+                            raise ValueError(f"Missing replay: {video}")
+                        probe = json.loads(subprocess.check_output([
+                            "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                            "-show_entries", "stream=nb_read_frames,width,height,duration", "-of", "json", str(video)], text=True))
+                        streams = probe.get("streams", [])
+                        if len(streams) != 1 or int(streams[0].get("nb_read_frames", 0)) < 1:
+                            raise ValueError(f"Replay has no decodable video frames: {video}")
+                        stage["videos"].append({"task": task, "seed": row["seed"], "success": row["success"],
+                                                "path": str(video), **streams[0]})
             if stage is not stages[0]:
                 reference = stages[0]["episode_audit"]
                 if any([(row["seed"], row["instruction"]) for row in audit[t]] !=
@@ -239,6 +272,14 @@ def main():
             lines.append(f"| {stage['name']} | {result['success']}/{result['total']} | {result['rate']:.1%} | {result['sim_seconds']} |")
         lines += ["", "Use multi-seed validation before selecting a winner. Shared clean normalization is held fixed."]
         (args.output / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if args.video:
+            replay_lines = ["# Replay index", "", "Diagnostic collection only; no training started.", "",
+                            "| Model | Task | Seed | Result | MP4 |", "|---|---|---:|---|---|"]
+            for stage in stages:
+                for video in stage["videos"]:
+                    relative = Path(video["path"]).relative_to(args.output).as_posix()
+                    replay_lines.append(f"| {stage['name']} | {video['task']} | {video['seed']} | {'success' if video['success'] else 'failure'} | [Replay]({relative}) |")
+            (args.output / "replays.md").write_text("\n".join(replay_lines) + "\n", encoding="utf-8")
         save()
     except BaseException as error:
         manifest["status"] = "failed_or_interrupted"
