@@ -16,6 +16,16 @@
 并将客户端/采集器存在性检查提前到模型加载前。
 所有资料保留在共享盘；GitHub 仅保存采集代码、测试和说明。
 
+首次真实轨迹验收：grab_roller 的两回合均成功，79/108 个动作。逐步 NPZ、最终观测和
+episode 元数据校验通过；MP4 均可解码，320×240，分别 80/109 视频帧（包含末尾成功帧），
+8.0/10.9 秒。其余任务继续按队列采集；这不是对全部 6 组完成的声明。
+
+```powershell
+# 在你电脑的 PowerShell 中运行：下载已经验收的两组成功回放到当前文件夹。
+# 密码通过交互提示输入，不会回显，不要写进命令。
+scp -P 2233 'root@ackcs-00gjhnt6@ssh.bj8.bz1.paratera.com:/root/shared-nvme/lingbot-assets/outputs/rollout_preview_clean_20261003_v2/lora_10000/robotwin_4090_lora_clean_c3447b1_10k_demo_clean_20261003_215933/eval_results/grab_roller/episode*_success.mp4' .
+```
+
 ## 保存内容
 
 每个任务结果目录下：
